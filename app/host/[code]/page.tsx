@@ -15,8 +15,13 @@ export default function HostPage({ params }: { params: { code: string } }) {
 
   const room = useRoom(code, initial);
   const left = useCountdown(room?.ends_at ?? null);
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
-  const joinUrl = `${appUrl}/play/${code}`;
+  // Prefer baked-in env URL, but fall back to the live origin at runtime so
+  // the QR never encodes a relative path (which phones dump to Google search).
+  const [origin, setOrigin] = useState(process.env.NEXT_PUBLIC_APP_URL ?? "");
+  useEffect(() => {
+    if (!origin && typeof window !== "undefined") setOrigin(window.location.origin);
+  }, [origin]);
+  const joinUrl = origin ? `${origin.replace(/\/$/, "")}/play/${code}` : `/play/${code}`;
   const qr = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(joinUrl)}`;
 
   async function post(path: string, body?: unknown) {
