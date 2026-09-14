@@ -15,6 +15,7 @@ export async function getSnapshot(code: string) {
     phase: room.phase,
     prompt: room.prompt,
     ends_at: room.ends_at,
+    current_round: room.current_round ?? 0,
     players: players ?? [],
     submissions: submissions ?? [],
     scores: room.scores ?? {},

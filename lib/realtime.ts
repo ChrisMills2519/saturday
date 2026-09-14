@@ -7,6 +7,7 @@ export type RoomSnapshot = {
   phase: string;
   prompt: string | null;
   ends_at: string | null;
+  current_round: number;
   players: { session_id: string; name: string }[];
   submissions: { player_session: string; text_content: string | null; image_url: string | null; votes: number }[];
   scores: Record<string, number>;

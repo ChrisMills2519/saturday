@@ -1,7 +1,8 @@
 "use client";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getSessionId } from "@/lib/gameEngine";
+import { clearDraft, loadDraft, loadJoin, saveDraft, saveJoin } from "@/lib/persistence";
 import { useRoom, useCountdown, type RoomSnapshot } from "@/lib/realtime";
 
 export default function PlayPage({ params }: { params: { code: string } }) {
@@ -18,16 +19,46 @@ function PlayInner({ code }: { code: string }) {
   const [joined, setJoined] = useState(!!search.get("name"));
   const [initial, setInitial] = useState<RoomSnapshot | null>(null);
   const [text, setText] = useState("");
+  const autoJoined = useRef(false);
 
   useEffect(() => {
     fetch(`/api/rooms/${code}`, { cache: "no-store" })
       .then((r) => r.json())
-      .then(setInitial)
+      .then((snap) => {
+        // RoomSnapshot from a fresh DB has no current_round on old payloads;
+        // default so draft keys stay stable.
+        if (snap && typeof snap.current_round !== "number") snap.current_round = 0;
+        setInitial(snap);
+      })
       .catch(() => {});
   }, [code]);
 
   const room = useRoom(code, initial);
+  const round = room?.current_round ?? initial?.current_round ?? 0;
   const left = useCountdown(room?.ends_at ?? null);
+
+  // Silent rejoin: a browser refresh must return the player to the game,
+  // not the join form. Explicit ?name= wins over stored join.
+  useEffect(() => {
+    if (joined || autoJoined.current) return;
+    if (search.get("name")) return;
+    const stored = loadJoin(code);
+    if (!stored) return;
+    autoJoined.current = true;
+    setName(stored.name);
+    fetch(`/api/rooms/${code}/join`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: stored.name, session_id: getSessionId() }),
+    }).then(() => setJoined(true));
+  }, [code, joined, search]);
+
+  // Restore draft for this round (e.g. after a refresh mid-typing).
+  useEffect(() => {
+    if (!joined || room?.phase !== "INPUT") return;
+    setText((cur) => (cur ? cur : loadDraft(code, round)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joined, code, round, room?.phase]);
 
   async function join() {
     if (!name.trim()) return;
@@ -36,7 +67,13 @@ function PlayInner({ code }: { code: string }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: name.trim(), session_id: getSessionId() }),
     });
+    saveJoin(code, name.trim());
     setJoined(true);
+  }
+
+  function onText(v: string) {
+    setText(v);
+    saveDraft(code, round, v);
   }
 
   async function submit() {
@@ -46,6 +83,7 @@ function PlayInner({ code }: { code: string }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: getSessionId(), text_content: text.trim() }),
     });
+    clearDraft(code, round);
     setText("");
   }
 
@@ -77,7 +115,7 @@ function PlayInner({ code }: { code: string }) {
 
       {room.phase === "INPUT" && (
         <>
-          <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Your answer…" rows={4} style={input} />
+          <textarea value={text} onChange={(e) => onText(e.target.value)} placeholder="Your answer…" rows={4} style={input} />
           <button onClick={submit} style={btn}>Submit</button>
         </>
       )}
