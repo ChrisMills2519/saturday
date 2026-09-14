@@ -47,3 +47,9 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 **What changed:** deployed to Vercel (`saturday-roan.vercel.app`, Ready). QR scanned to Google because `NEXT_PUBLIC_APP_URL` was empty in the first build → relative `/play/CODE` encoded. Hardened host page: prefers env URL, falls back to `window.location.origin` at runtime, strips trailing slash — QR can never be relative again. Pushed; Vercel auto-redeploys production with the 4 env vars now set.
 
 **Verified:** `typecheck` clean, `build` green, pushed to `master`.
+
+## 2026-09-14 — Reload-resilience on phones
+
+**What changed:** phone browsers reloaded mid-game (network switch/tab reclaim) and players lost join + drafts. Added `lib/persistence.ts` (join + per-round draft in localStorage, safe against corrupt/missing storage), wired silent auto-rejoin + draft save/restore/clear-on-submit into `app/play/[code]/page.tsx`, added `current_round` to the room snapshot (`roomService.ts`, `realtime.ts`). Also reverted an unrelated uncommitted homepage `motion` restyle to keep the diff focused.
+
+**Verified:** `typecheck` clean, `build` green, 8/8 node assertions on persistence helpers pass (round-trip, case-insensitive codes, corrupt/empty handling, round isolation, delete paths, broken-storage safety). Pushed to `master` (`bc705fd`); Vercel auto-redeploys.
