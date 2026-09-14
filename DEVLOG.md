@@ -41,3 +41,9 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 ## 2026-09-14 — Pushed to GitHub
 
 **What changed:** first commit (bones: host + play + rooms API, Supabase broadcast, docs) pushed to `https://github.com/ChrisMills2519/saturday.git` on `master`. `.env.local` stayed untracked as intended.
+
+## 2026-09-14 — QR hardening + live deploy
+
+**What changed:** deployed to Vercel (`saturday-roan.vercel.app`, Ready). QR scanned to Google because `NEXT_PUBLIC_APP_URL` was empty in the first build → relative `/play/CODE` encoded. Hardened host page: prefers env URL, falls back to `window.location.origin` at runtime, strips trailing slash — QR can never be relative again. Pushed; Vercel auto-redeploys production with the 4 env vars now set.
+
+**Verified:** `typecheck` clean, `build` green, pushed to `master`.
