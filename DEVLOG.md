@@ -53,3 +53,9 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 **What changed:** phone browsers reloaded mid-game (network switch/tab reclaim) and players lost join + drafts. Added `lib/persistence.ts` (join + per-round draft in localStorage, safe against corrupt/missing storage), wired silent auto-rejoin + draft save/restore/clear-on-submit into `app/play/[code]/page.tsx`, added `current_round` to the room snapshot (`roomService.ts`, `realtime.ts`). Also reverted an unrelated uncommitted homepage `motion` restyle to keep the diff focused.
 
 **Verified:** `typecheck` clean, `build` green, 8/8 node assertions on persistence helpers pass (round-trip, case-insensitive codes, corrupt/empty handling, round isolation, delete paths, broken-storage safety). Pushed to `master` (`bc705fd`); Vercel auto-redeploys.
+
+## 2026-09-14 — Landing page Motion restyle
+
+**What changed:** restyled `app/page.tsx` only (create/join logic untouched) with `motion` (`motion/react`, v13.2.0 — only new dep): full-viewport centered card on slate-950→indigo-950 gradient, chunky title, Create Game primary + Join Game section (name + 4-char uppercase code). Staggered spring entrance (0.12s), button hover/tap scale, code-input focus pulse, subtle 4s title float. Transform/opacity only, mobile-friendly (`100dvh`, `clamp()` type), no sound/confetti/images. Re-applies the restyle reverted in the previous session, now as its own change per user request.
+
+**Verified:** `npm run typecheck` clean, `npm run build` green (`/` renders 41.9 kB static).

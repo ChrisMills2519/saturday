@@ -1,7 +1,22 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { motion, type Variants } from "motion/react";
 import { getSessionId } from "@/lib/gameEngine";
+
+const container: Variants = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.12 } },
+};
+
+const item: Variants = {
+  hidden: { opacity: 0, y: 24 },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: { type: "spring", stiffness: 260, damping: 22 },
+  },
+};
 
 export default function Home() {
   const router = useRouter();
@@ -40,28 +55,176 @@ export default function Home() {
   }
 
   return (
-    <main style={{ maxWidth: 560, margin: "40px auto", padding: 24 }}>
-      <h1>Saturday Bones</h1>
-      <p>Laptop = TV host screen. Phones = controllers. No app install.</p>
-      <button onClick={createRoom} disabled={busy} style={btn}>
-        Create room (TV)
-      </button>
-      <hr style={{ margin: "24px 0", opacity: 0.3 }} />
-      <h2>Join on your phone</h2>
-      <input placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)} style={input} />
-      <input placeholder="Room code (e.g. AB12)" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} style={input} />
-      <button onClick={joinRoom} disabled={busy} style={btn}>
-        Join room
-      </button>
-    </main>
+    <motion.main
+      variants={container}
+      initial="hidden"
+      animate="show"
+      style={page}
+    >
+      <div style={card}>
+        <motion.div variants={item} style={{ textAlign: "center" }}>
+          <motion.h1
+            animate={{ y: [0, -4, 0, 4, 0] }}
+            transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+            style={title}
+          >
+            Saturday Bones
+          </motion.h1>
+          <p style={subtitle}>
+            Laptop = TV host screen. Phones = controllers. No app install.
+          </p>
+        </motion.div>
+
+        <motion.div variants={item}>
+          <motion.button
+            onClick={createRoom}
+            disabled={busy}
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.97 }}
+            transition={{ duration: 0.15 }}
+            style={primaryBtn}
+          >
+            Create Game
+          </motion.button>
+        </motion.div>
+
+        <motion.section variants={item} style={joinSection}>
+          <h2 style={joinHeading}>Join Game</h2>
+          <input
+            placeholder="Your name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoComplete="nickname"
+            style={input}
+          />
+          <motion.input
+            placeholder="Code (e.g. AB12)"
+            value={code}
+            onChange={(e) => setCode(e.target.value.toUpperCase())}
+            maxLength={4}
+            autoCapitalize="characters"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            inputMode="text"
+            whileFocus={{ scale: [1, 1.02, 1] }}
+            transition={{ duration: 0.18 }}
+            style={{ ...input, textTransform: "uppercase" }}
+          />
+          <motion.button
+            onClick={joinRoom}
+            disabled={busy}
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.97 }}
+            transition={{ duration: 0.15 }}
+            style={secondaryBtn}
+          >
+            Join Game
+          </motion.button>
+        </motion.section>
+      </div>
+    </motion.main>
   );
 }
 
-const input: React.CSSProperties = {
-  display: "block", width: "100%", padding: 14, fontSize: 18, margin: "8px 0", borderRadius: 8, border: "1px solid #444",
+const page: React.CSSProperties = {
+  minHeight: "100dvh",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 20,
+  boxSizing: "border-box",
+  // slate-950 (#020617) -> indigo-950 (#1e1b4b), subtle radial lift
+  background:
+    "radial-gradient(ellipse 80% 60% at 50% 20%, rgba(99,102,241,0.18), transparent 70%), linear-gradient(160deg, #020617 0%, #0b0a2a 55%, #1e1b4b 100%)",
 };
 
-const btn: React.CSSProperties = {
-  display: "block", width: "100%", padding: 16, fontSize: 20, margin: "8px 0", borderRadius: 10,
-  background: "#7c3aed", color: "#fff", border: "none", cursor: "pointer",
+const card: React.CSSProperties = {
+  width: "100%",
+  maxWidth: 480,
+  boxSizing: "border-box",
+  padding: "clamp(24px, 5vw, 40px)",
+  borderRadius: 20,
+  background: "rgba(255,255,255,0.06)",
+  border: "1px solid rgba(255,255,255,0.12)",
+  boxShadow: "0 24px 64px rgba(0,0,0,0.45)",
+  backdropFilter: "blur(8px)",
+};
+
+const title: React.CSSProperties = {
+  margin: 0,
+  fontSize: "clamp(2.5rem, 8vw, 3.5rem)",
+  fontWeight: 600,
+  letterSpacing: "-0.02em",
+  lineHeight: 1.05,
+  color: "#fff",
+};
+
+const subtitle: React.CSSProperties = {
+  margin: "12px 0 0",
+  fontSize: 16,
+  lineHeight: 1.5,
+  color: "rgba(255,255,255,0.7)",
+};
+
+const primaryBtn: React.CSSProperties = {
+  display: "block",
+  width: "100%",
+  boxSizing: "border-box",
+  padding: 16,
+  fontSize: 20,
+  fontWeight: 600,
+  margin: "24px 0 0",
+  borderRadius: 12,
+  background: "#7c3aed",
+  color: "#fff",
+  border: "none",
+  cursor: "pointer",
+  minHeight: 56,
+};
+
+const joinSection: React.CSSProperties = {
+  marginTop: 24,
+  paddingTop: 24,
+  borderTop: "1px solid rgba(255,255,255,0.12)",
+};
+
+const joinHeading: React.CSSProperties = {
+  margin: "0 0 12px",
+  fontSize: 20,
+  fontWeight: 600,
+  letterSpacing: "-0.01em",
+  textAlign: "center",
+  color: "#fff",
+};
+
+const input: React.CSSProperties = {
+  display: "block",
+  width: "100%",
+  boxSizing: "border-box",
+  padding: 14,
+  fontSize: 18,
+  margin: "8px 0",
+  borderRadius: 10,
+  border: "1px solid rgba(255,255,255,0.2)",
+  background: "rgba(0,0,0,0.35)",
+  color: "#fff",
+  outline: "none",
+  minHeight: 52,
+};
+
+const secondaryBtn: React.CSSProperties = {
+  display: "block",
+  width: "100%",
+  boxSizing: "border-box",
+  padding: 16,
+  fontSize: 20,
+  fontWeight: 600,
+  margin: "8px 0 0",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.12)",
+  color: "#fff",
+  border: "1px solid rgba(255,255,255,0.2)",
+  cursor: "pointer",
+  minHeight: 56,
 };
