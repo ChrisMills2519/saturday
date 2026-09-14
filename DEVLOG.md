@@ -36,4 +36,8 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 
 ## 2026-09-14 — Vercel deploy prep
 
-**What changed:** fixed `.gitignore` — it had a bare `.env` line that also ignored `.env.example` (which must be committed, no secrets in it). Now ignores `.env*.local` + `tsconfig.tsbuildinfo`; verified `git check-ignore .env.local` still ignored. No commits yet, no remote — user pushes + imports in Vercel dashboard next.
+**What changed:** fixed `.gitignore` — it had a bare `.env` line that also ignored `.env.example` (which must be committed, no secrets in it). Now ignores `.env*.local` + `tsconfig.tsbuildinfo`; verified `git check-ignore .env.local` still ignored.
+
+## 2026-09-14 — Pushed to GitHub
+
+**What changed:** first commit (bones: host + play + rooms API, Supabase broadcast, docs) pushed to `https://github.com/ChrisMills2519/saturday.git` on `master`. `.env.local` stayed untracked as intended.
