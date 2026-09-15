@@ -159,3 +159,24 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 
 **What's next:** set `CRON_SECRET` (`openssl rand -hex 32`) in Vercel env so the cron is authorized in prod → push → phone-on-mobile-data test.
 
+## 2026-09-15 — Lobby music file + CC0 SFX pack vendored
+
+**What changed:** game has real music now (synth stays as fallback). `public/audio/lobby.mp3` (763KB) + `lobby.ogg` (584KB): 65s mono 44.1kHz cut of `Funked Up` by Joth (CC0, https://opengameart.org/content/funked-up), normalized `-14 LUFS` + 0.5s in / 5s out fades. Host `<audio>` (`app/host/[code]/page.tsx`) now tries ogg first, mp3 fallback for Safari; missing/broken still flips to synth `startLobbyLoop()`. Vendored 7 CC0 one-shots in `public/audio/sfx/` (~72KB total: Kenney Interface/Jingles + OGA `pop1` — see `public/audio/README.md` for provenance); one-shots stay WebAudio-synth in `lib/sfx.ts` (zero-latency, offline-safe), files reserved for a future upgrade pass. Pixabay (`pixabay.com/music/funk-funk-244706` etc.) confirmed usable per host (Pixabay Content License, not CC0) but bot-walled on scrape — manual download only, not vendored.
+
+**Why:** user asked for CC0 music + SFX scouts, then "go for it" with Pixabay allowed. Lobby loop is the only file justified today (host-only, single cached fetch, paused off-LOBBY); file SFX would add per-effect network + decode latency on the countdown hot path.
+
+**Verified:** `typecheck` clean, `build` green (host 4.83 / play 4.57 kB, JS unaffected — statics aren't bundled). `next start` serves `/audio/lobby.mp3 200 audio/mpeg 781179`, `/audio/lobby.ogg 200 audio/ogg`, `/audio/sfx/tick.ogg 200`. No stray server left (`ps -C node` empty).
+
+## 2026-09-15 — Pixabay via teddy pipeline (curl_cffi upgrade)
+
+**What changed:** user recalled teddy downloaded Pixabay audio — checked `teddy-world/AGENTS.md` Pixabay pipeline (cloudscraper → search → detail → `cdn.pixabay.com/download/audio/...` regex → plain-curl CDN → ffmpeg). That pipeline is stale: Pixabay Cloudflare now 403s plain curl, `cloudscraper` 1.2.71, and this chat's WebFetch. Upgraded to `curl_cffi` chrome124 TLS impersonation in `/tmp/pxvenv` — search + detail pages 200, CDN regex unchanged, CDN takes plain curl. Scraped `funky party` / `game show` / `quirky comedy` (20 tracks each, ~11 CDN URLs, a few transient 403s on detail pages). Vendored 2 normalized alternates in `public/audio/`: `lobby-gameshow.mp3` (997KB/85s, `Game Show Chant` by Geeemusic) + `lobby-quirky.mp3` (294KB/25s, alex-morgan quirky loop). Shipped `lobby.mp3` (CC0 Funked Up) unchanged — listen and promote the winner. Scraper saved at `/tmp/opencode/audio/px_music.py` (not in repo — /tmp only).
+
+**Why:** Pixabay Content License is usable per host (free, no attribution) and has the most on-brief game-show/funky tracks; CC0-only pool was thin for full-length lobby beds.
+
+**Verified:** `typecheck` clean, `build` green; `next start` serves both alternates 200 `audio/mpeg` with exact byte sizes; server stopped via PID (no `pkill`).
+
+## 2026-09-15 — Mascots + backdrop + PWA icons vendored
+
+**What changed:** standing asset-fetch permission added to `AGENTS.md` (CC0-first, static-only, provenance + size rules). Vendored P0 art, all generated in-repo with PIL (CC0, no attribution): `public/images/mascot-lobby.png` (13KB, waving happy) + `mascot-reveal.png` (13KB, shocked) + `mascot-score.png` (13KB, trophy + party hat) — all 1000x1000 transparent, thick black outline, flat pink/purple/yellow/teal; `bg-burst.png` (43KB, 1920x1080 plum sunburst). Derived `favicon.png` (64) + `apple-touch-icon.png` (180) + `icon-192/512.png` + `og-image.png` (1200x630) + `manifest.webmanifest`; `app/layout.tsx` metadata now wires manifest/icons/openGraph. Scouted but skipped: Kenney Shape Characters (CC0 modular parts too small for TV) + OGA Blobby/Goblin (CC-BY-SA/BY, attribution required). Provenance in `public/images/README.md`.
+
+**Verified:** `typecheck` clean, `build` green (host 4.83 / play 4.57 kB). `next start` serves all 10 statics 200 with exact byte sizes. `ps -C node` empty, no stray server.
