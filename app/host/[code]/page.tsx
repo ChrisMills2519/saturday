@@ -3,6 +3,39 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { useRoom, useCountdown, type RoomSnapshot } from "@/lib/realtime";
 import {
+  ensureAudio,
+  isMuted,
+  setMuted,
+  tick,
+  timesUp,
+  revealSting,
+  fanfare,
+  joinChime,
+  startLobbyLoop,
+} from "@/lib/sfx";
+import {
+  COLD_OPEN,
+  LOBBY_TITLE,
+  LOBBY_SUB,
+  LOBBY_EMPTY,
+  lobbyReady,
+  roundTitle,
+  INPUT_SUB,
+  INPUT_ONELINERS,
+  inputNudge,
+  REVEAL_TITLE,
+  REVEAL_SUB,
+  REVEAL_ANON,
+  VOTE_TITLE,
+  VOTE_SUB,
+  VOTE_BLIND,
+  voteProgress,
+  VOTE_NEED_MORE,
+  SCORE_TITLE,
+  winnerLine,
+  SCORE_EMPTY,
+} from "@/lib/hostCopy";
+import {
   TimerIcon,
   MaskIcon,
   BallotIcon,
@@ -104,6 +137,16 @@ export default function HostPage({ params }: { params: { code: string } }) {
 
   const room = useRoom(code, initial);
   const left = useCountdown(room?.ends_at ?? null);
+  const [muted, setMutedState] = useState(false);
+  const [soundOn, setSoundOn] = useState(false);
+  const [oneLiner, setOneLiner] = useState(0);
+  const lastLeft = useRef<number | null>(null);
+  const lastPlayers = useRef(0);
+  const lobbyAudio = useRef<HTMLAudioElement | null>(null);
+  const [musicOk, setMusicOk] = useState(true);
+  useEffect(() => {
+    setMutedState(isMuted());
+  }, []);
   const [origin, setOrigin] = useState(process.env.NEXT_PUBLIC_APP_URL ?? "");
   useEffect(() => {
     if (!origin && typeof window !== "undefined") setOrigin(window.location.origin);
@@ -116,6 +159,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
   const qr = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(joinUrl)}`;
 
   async function post(path: string, body?: unknown) {
+    if (ensureAudio()) setSoundOn(true);
     await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -123,10 +167,63 @@ export default function HostPage({ params }: { params: { code: string } }) {
     });
   }
 
-  // Fire confetti once per SCORE entry.
+  function toggleMute() {
+    const next = !muted;
+    setMuted(next);
+    setMutedState(next);
+    if (!next && ensureAudio()) setSoundOn(true);
+  }
+
+  // Fire confetti + fanfare once per SCORE entry.
   useEffect(() => {
-    if (room?.phase === "SCORE") setBurst((b) => b + 1);
+    if (room?.phase === "SCORE") {
+      setBurst((b) => b + 1);
+      fanfare();
+    }
+    if (room?.phase === "REVEAL") revealSting();
   }, [room?.phase, room?.current_round]);
+
+  // Lobby entrance chime when the roster grows.
+  useEffect(() => {
+    const n = room?.players.length ?? 0;
+    if (n > lastPlayers.current) joinChime();
+    lastPlayers.current = n;
+  }, [room?.players.length]);
+
+  // Countdown ticks (last 5s) + times-up slam. Local only, from ends_at.
+  useEffect(() => {
+    if (left === null || left === lastLeft.current) return;
+    lastLeft.current = left;
+    if (left <= 5 && left > 0) tick(left);
+    if (left === 0) timesUp();
+  }, [left]);
+
+  // Rotating dead-air one-liner during INPUT.
+  useEffect(() => {
+    if (room?.phase !== "INPUT") return;
+    const id = setInterval(() => setOneLiner((i) => i + 1), 8000);
+    return () => clearInterval(id);
+  }, [room?.phase, room?.current_round]);
+
+  // Lobby music: mp3 if present, else synth loop. Plays in LOBBY after
+  // unlock, ducked; paused otherwise. Missing file fails silently.
+  useEffect(() => {
+    const el = lobbyAudio.current;
+    const lobby = room?.phase === "LOBBY" && soundOn && !muted;
+    if (el && musicOk) {
+      if (lobby) {
+        el.volume = 0.3;
+        void el.play().catch(() => {});
+      } else {
+        el.pause();
+      }
+      return;
+    }
+    if (!musicOk && lobby) {
+      const stop = startLobbyLoop();
+      return stop;
+    }
+  }, [room?.phase, soundOn, muted, musicOk]);
 
   // Auto-advance INPUT -> REVEAL when the timer expires so an AFK host
   // never stalls phones. Server still authorizes the transition.
@@ -153,6 +250,20 @@ export default function HostPage({ params }: { params: { code: string } }) {
   return (
     <main style={wrap}>
       <Confetti burst={reduce ? 0 : burst} />
+      <audio
+        ref={lobbyAudio}
+        loop
+        preload="auto"
+        src="/audio/lobby.mp3"
+        onError={() => setMusicOk(false)}
+      />
+      <button
+        onClick={toggleMute}
+        style={soundBtn}
+        aria-label={muted ? "Unmute sound" : "Mute sound"}
+      >
+        {!soundOn ? "Tap for sound" : muted ? "Sound off" : "Sound on"}
+      </button>
       {!clean && (
         <header style={{ display: "flex", gap: 32, alignItems: "center", flexWrap: "wrap" }}>
           <div>
@@ -186,14 +297,20 @@ export default function HostPage({ params }: { params: { code: string } }) {
         <motion.section key={room.phase + room.current_round} variants={phaseV} initial="hidden" animate="show" exit="exit">
           {room.phase === "LOBBY" && (
             <>
-              <h2 style={h2}>Lobby</h2>
+              <h2 style={h2}>{LOBBY_TITLE}</h2>
+              <p style={{ opacity: 0.7 }}>{COLD_OPEN}</p>
+              <p style={{ opacity: 0.7 }}>{LOBBY_SUB}</p>
               <PlayerParade phase="LOBBY" players={room.players} disabled={!!reduce} />
               <motion.ul variants={grid} initial="hidden" animate="show" style={{ listStyle: "none", padding: 0 }}>
                 {room.players.map((p) => (
                   <motion.li key={p.session_id} variants={cardV} style={li}>{p.name}</motion.li>
                 ))}
               </motion.ul>
-              {room.players.length === 0 && <p style={{ opacity: 0.6 }}>Waiting for family to join…</p>}
+              {room.players.length === 0 ? (
+                <p style={{ opacity: 0.6 }}>{LOBBY_EMPTY}</p>
+              ) : (
+                <p style={{ fontSize: 20 }}>{lobbyReady(room.players.length)}</p>
+              )}
               <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} style={btn} onClick={() => post(`/api/rooms/${code}/start`, {})}>
                 Start round
               </motion.button>
@@ -202,9 +319,14 @@ export default function HostPage({ params }: { params: { code: string } }) {
 
           {room.phase === "INPUT" && (
             <>
-              <h2 style={h2}>{room.prompt}</h2>
+              <h2 style={h2}>{roundTitle(room.current_round)}</h2>
+              <p style={{ fontSize: 28, fontWeight: 700 }}>{room.prompt}</p>
+              <p style={{ fontSize: 20, opacity: 0.8 }}>{INPUT_SUB}</p>
               <p style={{ fontSize: 22, opacity: 0.8 }}>
-                {submitted}/{total} submitted{submitted === total && total > 0 ? " — everyone’s in!" : "…"}
+                {inputNudge(submitted, total)}
+              </p>
+              <p style={{ fontSize: 18, opacity: 0.6, fontStyle: "italic" }}>
+                {INPUT_ONELINERS[(oneLiner + room.current_round) % INPUT_ONELINERS.length]}
               </p>
               {/* Blind: placeholder cards only, answers stay secret until REVEAL. */}
               <motion.div variants={grid} initial="hidden" animate="show" style={gridStyle}>
@@ -237,9 +359,10 @@ export default function HostPage({ params }: { params: { code: string } }) {
           {room.phase === "REVEAL" && (
             <>
               <h2 style={{ ...h2, display: "flex", alignItems: "center", gap: 12 }}>
-                <MaskIcon size={40} /> {room.prompt}
+                <MaskIcon size={40} /> {REVEAL_TITLE}
               </h2>
-              <p style={{ opacity: 0.7 }}>Read them aloud. Drumroll…</p>
+              <p style={{ fontSize: 24 }}>{room.prompt}</p>
+              <p style={{ opacity: 0.7 }}>{REVEAL_SUB}</p>
               <motion.div variants={grid} initial="hidden" animate="show" style={gridStyle}>
                 {room.submissions.map((s) => (
                   <motion.div key={s.player_session} variants={cardV} whileHover={reduce ? undefined : { scale: 1.04, rotate: -1 }} style={card}>
@@ -250,7 +373,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
                     ) : (
                       <p style={{ fontSize: 24 }}>{s.text_content}</p>
                     )}
-                    <small style={{ opacity: 0.6 }}>anonymous… for now</small>
+                    <small style={{ opacity: 0.6 }}>{REVEAL_ANON}</small>
                   </motion.div>
                 ))}
               </motion.div>
@@ -265,11 +388,12 @@ export default function HostPage({ params }: { params: { code: string } }) {
           {room.phase === "VOTE" && (
             <>
               <h2 style={{ ...h2, display: "flex", alignItems: "center", gap: 12 }}>
-                <BallotIcon size={40} /> Vote on your phones!
+                <BallotIcon size={40} /> {VOTE_TITLE}
               </h2>
-              <p style={{ fontSize: 22, opacity: 0.8 }}>{totalVotes}/{total} voted — tallies hidden until scores…</p>
+              <p style={{ fontSize: 20, opacity: 0.8 }}>{VOTE_SUB}</p>
+              <p style={{ fontSize: 22, opacity: 0.8 }}>{voteProgress(totalVotes, total)}</p>
               {room.submissions.length <= 1 && (
-                <p style={{ fontSize: 18, opacity: 0.7 }}>Need 2+ answers to vote (solo players can&apos;t vote for themselves) — invite more phones or skip to scores.</p>
+                <p style={{ fontSize: 18, opacity: 0.7 }}>{VOTE_NEED_MORE}</p>
               )}
               <motion.div variants={grid} initial="hidden" animate="show" style={gridStyle}>
                 {room.submissions.map((s) => (
@@ -282,7 +406,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
                       <p style={{ fontSize: 24 }}>{s.text_content}</p>
                     )}
                     <small style={{ opacity: 0.6, display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      <LockIcon size={16} /> blind vote
+                      <LockIcon size={16} /> {VOTE_BLIND}
                     </small>
                   </motion.div>
                 ))}
@@ -298,7 +422,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
           {room.phase === "SCORE" && (
             <>
               <h2 style={{ ...h2, display: "flex", alignItems: "center", gap: 12 }}>
-                <TrophyIcon size={40} /> Scores
+                <TrophyIcon size={40} /> {SCORE_TITLE}
               </h2>
               <PlayerParade phase="SCORE" players={room.players} disabled={!!reduce} height={180} />
               <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginTop: 16, minHeight: 220 }}>
@@ -324,11 +448,11 @@ export default function HostPage({ params }: { params: { code: string } }) {
                     </AnimatePresence>
                   </motion.div>
                 ))}
-                {sortedScores.length === 0 && <p style={{ opacity: 0.6 }}>No votes yet — play a round!</p>}
+                {sortedScores.length === 0 && <p style={{ opacity: 0.6 }}>{SCORE_EMPTY}</p>}
               </div>
               {sortedScores[0] && (
                 <p style={{ fontSize: 24, display: "flex", alignItems: "center", gap: 10 }}>
-                  <TrophyIcon size={28} /> Winner: {sortedScores[0].name}!
+                  <TrophyIcon size={28} /> {winnerLine(sortedScores[0].name)}
                 </p>
               )}
               <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} style={btn} onClick={() => post(`/api/rooms/${code}/next`, { to: "INPUT" })}>
@@ -349,3 +473,4 @@ const card: React.CSSProperties = { background: "#222", padding: 20, borderRadiu
 const gridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16, perspective: 800 };
 const btn: React.CSSProperties = { padding: "14px 28px", fontSize: 20, borderRadius: 10, background: "#7c3aed", color: "#fff", border: "none", cursor: "pointer", marginTop: 12 };
 const podiumBar: React.CSSProperties = { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", gap: 6, padding: 14, borderRadius: 12, background: "#312e81", border: "1px solid rgba(255,255,255,0.15)" };
+const soundBtn: React.CSSProperties = { position: "fixed", bottom: 16, right: 16, zIndex: 60, padding: "10px 16px", fontSize: 15, fontWeight: 700, borderRadius: 999, background: "rgba(255,255,255,0.12)", color: "#fff", border: "1px solid rgba(255,255,255,0.25)", cursor: "pointer" };

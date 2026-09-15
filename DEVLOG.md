@@ -122,3 +122,19 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 **Verified:** `votes` REST now 200 for both service_role and anon (was 403). No code changes; `typecheck`/`build` already green from the previous step.
 
 **What's next:** full vote-loop smoke (double-vote 400, self-vote 400) → push → phone-on-mobile-data test.
+
+## 2026-09-15 — Supabase MCP wired into opencode
+
+**What changed:** added `supabase` MCP server to `~/.config/opencode/opencode.jsonc` (global, outside repo): hosted `https://mcp.supabase.com/mcp`, scoped with `?project_ref=uftdtzqjnebryxodibxo&features=database,docs` (no account-mgmt tools, no storage group), PAT via `Authorization: Bearer {env:SUPABASE_ACCESS_TOKEN}` header (no browser OAuth needed), `oauth: false`. Token itself stays in shell env + gitignored `.env.local`, never in the config.
+
+**Verified:** config parses as JSON; direct MCP `initialize` handshake 200; `opencode mcp list` shows `supabase connected`. Tools (`list_tables`, `execute_sql`, `apply_migration`, …) load on session start — restart opencode session to pick them up.
+
+## 2026-09-15 — Sound + announcer copy (Slice 1)
+
+**What changed:** game has a voice now. New `lib/sfx.ts` (WebAudio synth, zero files): countdown ticks (rising pitch last 5s), times-up buzz+crash, reveal drumroll sting, vote pop, submit blip, score fanfare, lobby join chime — lazy AudioContext unlocked on first tap (mobile autoplay-safe), persisted mute, reduced-motion quiets non-essentials. New `lib/hostCopy.ts`: cold open, round titles, INPUT sub + rotating 8s one-liners (dead-air cover), REVEAL/VOTE/SCORE cards, vote progress, solo nudges, winner lines — no emoji, icons carry visuals. Host: title cards per phase, ticks + times-up from `ends_at`, sting on REVEAL, fanfare on SCORE, join chime on roster growth, `Tap for sound`/mute pill, lobby music (mp3 if `public/audio/lobby.mp3` exists, else built-in synth I–vi–IV–V loop, ducked to LOBBY). Phones: unlock on join/submit/vote, ticks + times-up buzz + haptics, blips on submit/vote, all strings via copy file.
+
+**Why:** sound was 0 lines — the highest-value feel gap; announcer copy is Jackbox's 50% for free. All client-only, keyed on `room.phase` + `ends_at`, zero network/surprise billing.
+
+**Verified:** `typecheck` clean, `build` green (host 6.88 / play 6.75 kB); regression API loop PASS (3P full game, double-vote 400, scores session-keyed).
+
+**What's next:** drop a CC0 mp3 at `public/audio/lobby.mp3` to upgrade the synth loop (optional) → browser sound pass (unlock, mute persist, reduced-motion) → protocol hardening (seq + INPUT redaction) → game structure (3 rounds, gating).

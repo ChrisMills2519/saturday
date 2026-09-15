@@ -6,6 +6,27 @@ import { getSessionId } from "@/lib/gameEngine";
 import { clearDraft, loadDraft, loadJoin, loadVoted, saveDraft, saveJoin, saveVoted } from "@/lib/persistence";
 import { useRoom, useCountdown, type RoomSnapshot } from "@/lib/realtime";
 import { TimerIcon, CheckIcon, EyeIcon, TrophyIcon } from "@/components/icons";
+import {
+  ensureAudio,
+  tick,
+  timesUp,
+  votePop,
+  submitBlip,
+  buzz,
+} from "@/lib/sfx";
+import {
+  JOINED_LOBBY_TITLE,
+  JOINED_LOBBY_SUB,
+  SUBMITTED_TITLE,
+  REVEAL_LOOKUP_TITLE,
+  REVEAL_LOOKUP_SUB,
+  VOTED_TITLE,
+  VOTE_EMPTY_TITLE,
+  SUBMIT_LATE,
+  ALREADY_VOTED,
+  personalLine,
+  youWinLine,
+} from "@/lib/hostCopy";
 
 const MAX_LEN = 140;
 
@@ -41,6 +62,7 @@ function PlayInner({ code }: { code: string }) {
   const [sid] = useState(() => getSessionId());
   const reduce = useReducedMotion();
   const autoJoined = useRef(false);
+  const lastLeft = useRef<number | null>(null);
 
   useEffect(() => {
     fetch(`/api/rooms/${code}`, { cache: "no-store" })
@@ -83,8 +105,20 @@ function PlayInner({ code }: { code: string }) {
     setSubmitErr(null);
   }, [code, round, room?.phase]);
 
+  // Countdown ticks (last 5s) + times-up buzz. Local only, from ends_at.
+  useEffect(() => {
+    if (left === null || left === lastLeft.current) return;
+    lastLeft.current = left;
+    if (left <= 5 && left > 0) tick(left);
+    if (left === 0) {
+      timesUp();
+      buzz();
+    }
+  }, [left]);
+
   async function join() {
     if (!name.trim()) return;
+    ensureAudio();
     await fetch(`/api/rooms/${code}/join`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -101,15 +135,18 @@ function PlayInner({ code }: { code: string }) {
 
   async function submit() {
     if (!text.trim()) return;
+    ensureAudio();
     const res = await fetch(`/api/rooms/${code}/submit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: getSessionId(), text_content: text.trim() }),
     });
     if (!res.ok) {
-      setSubmitErr("Too late — round moved on!");
+      setSubmitErr(SUBMIT_LATE);
       return;
     }
+    submitBlip();
+    buzz();
     clearDraft(code, round);
     setText("");
     setSubmitErr(null);
@@ -117,6 +154,7 @@ function PlayInner({ code }: { code: string }) {
 
   async function vote(player_session: string) {
     setVoteErr(null);
+    ensureAudio();
     const res = await fetch(`/api/rooms/${code}/vote`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -124,9 +162,11 @@ function PlayInner({ code }: { code: string }) {
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      setVoteErr(data.error === "already voted" ? "Vote already locked in" : `Couldn't vote: ${data.error ?? res.status}`);
+      setVoteErr(data.error === "already voted" ? ALREADY_VOTED : `Couldn't vote: ${data.error ?? res.status}`);
       return;
     }
+    votePop();
+    buzz();
     saveVoted(code, round, player_session);
     setVoted(player_session);
   }
@@ -168,9 +208,9 @@ function PlayInner({ code }: { code: string }) {
       {room.phase === "LOBBY" && (
         <div style={doneCard}>
           <p style={{ fontSize: 22, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-            <EyeIcon size={24} /> You&apos;re in!
+            <EyeIcon size={24} /> {JOINED_LOBBY_TITLE}
           </p>
-          <p style={{ opacity: 0.7 }}>Look at the TV — the round starts soon.</p>
+          <p style={{ opacity: 0.7 }}>{JOINED_LOBBY_SUB}</p>
         </div>
       )}
 
@@ -206,7 +246,7 @@ function PlayInner({ code }: { code: string }) {
               <motion.path d="M24 37l8 8 16-16" fill="none" stroke="#34d399" strokeWidth={6} strokeLinecap="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.4, delay: 0.3 }} />
             </motion.svg>
           </AnimatePresence>
-          <p style={{ fontSize: 20, fontWeight: 700 }}>You&apos;re in! Relax</p>
+          <p style={{ fontSize: 20, fontWeight: 700 }}>{SUBMITTED_TITLE}</p>
           <p style={{ opacity: 0.7, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
             <EyeIcon size={22} /> Look at the TV — {room.submissions.length}/{Math.max(room.players.length, 1)} submitted.
           </p>
@@ -216,9 +256,9 @@ function PlayInner({ code }: { code: string }) {
       {room.phase === "REVEAL" && (
         <div style={doneCard}>
           <p style={{ fontSize: 24, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-            <EyeIcon size={26} /> Look up!
+            <EyeIcon size={26} /> {REVEAL_LOOKUP_TITLE}
           </p>
-          <p style={{ opacity: 0.7 }}>Answers are on the TV. Voting opens next.</p>
+          <p style={{ opacity: 0.7 }}>{REVEAL_LOOKUP_SUB}</p>
           {mySub && <p style={{ opacity: 0.7 }}>Your answer: “{mySub.text_content ?? "(drawing)"}”</p>}
         </div>
       )}
@@ -230,12 +270,12 @@ function PlayInner({ code }: { code: string }) {
               <p style={{ fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                 <CheckIcon size={22} animated={!reduce} /> Voted for {nameOf(room, voted)}
               </p>
-              <p style={{ opacity: 0.7 }}>Locked in — no take-backs. Results on TV soon.</p>
+              <p style={{ opacity: 0.7 }}>{VOTED_TITLE}</p>
             </div>
           ) : votable.length === 0 ? (
             <div style={doneCard}>
               <p style={{ fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                <EyeIcon size={22} /> Nothing to vote on yet
+                <EyeIcon size={22} /> {VOTE_EMPTY_TITLE}
               </p>
               <p style={{ opacity: 0.7 }}>
                 {room.submissions.length <= 1
@@ -260,8 +300,7 @@ function PlayInner({ code }: { code: string }) {
           {winner && (
             <p style={{ fontSize: 22, fontWeight: 800, display: "flex", alignItems: "center", gap: 8 }}>
               <TrophyIcon size={26} />
-              {winner.sessionId === sid ? "You win!" : `${winner.name} wins!`}
-              {myScore ? ` — you have ${myScore.pts}` : ""}
+              {winner.sessionId === sid ? youWinLine() : myScore ? personalLine(winner.name, myScore.pts) : `${winner.name} wins!`}
             </p>
           )}
           <ul style={{ listStyle: "none", padding: 0 }}>
