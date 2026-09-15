@@ -180,3 +180,11 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 **What changed:** standing asset-fetch permission added to `AGENTS.md` (CC0-first, static-only, provenance + size rules). Vendored P0 art, all generated in-repo with PIL (CC0, no attribution): `public/images/mascot-lobby.png` (13KB, waving happy) + `mascot-reveal.png` (13KB, shocked) + `mascot-score.png` (13KB, trophy + party hat) — all 1000x1000 transparent, thick black outline, flat pink/purple/yellow/teal; `bg-burst.png` (43KB, 1920x1080 plum sunburst). Derived `favicon.png` (64) + `apple-touch-icon.png` (180) + `icon-192/512.png` + `og-image.png` (1200x630) + `manifest.webmanifest`; `app/layout.tsx` metadata now wires manifest/icons/openGraph. Scouted but skipped: Kenney Shape Characters (CC0 modular parts too small for TV) + OGA Blobby/Goblin (CC-BY-SA/BY, attribution required). Provenance in `public/images/README.md`.
 
 **Verified:** `typecheck` clean, `build` green (host 4.83 / play 4.57 kB). `next start` serves all 10 statics 200 with exact byte sizes. `ps -C node` empty, no stray server.
+
+## 2026-09-15 — longlooplobby promoted to lobby music + Pixabay rule amended
+
+**What changed:** per host pick, `public/audio/longlooplobby.mp3` (host-provided 162s stereo 192k, no ID3 tags) is now the lobby bed: normalized to `lobby.mp3` + `lobby.ogg` (mono 44.1k, `-14 LUFS`, 0.5s in-fade, no trim/out-fade to preserve its loop endpoint). Ex-CC0 bed kept as `lobby-funkedup.mp3/.ogg` for audition. Raw source gitignored (3.8MB, stays on disk untracked). `AGENTS.md`: Pixabay rule amended from manual-drop-only to scripted-CDN-allowed (`curl_cffi` chrome impersonation; human verifies license per track).
+
+**Why:** host chose their own track for the game's voice; rule amendment records the working 2026 pipeline instead of the stale cloudscraper one.
+
+**Verified:** `typecheck` clean, `build` green; `next start` serves `/audio/lobby.mp3 200 audio/mpeg`, `/audio/lobby.ogg 200 audio/ogg`, `/audio/lobby-funkedup.mp3 200`. NOTE: a concurrent session re-encoded `lobby.mp3` mid-task (1.9MB/96k → 1.3MB/64k mono, now inside the 1.5MB loop budget) — shipped the on-disk version, flagged in chat. `CRON_SECRET` confirmed set in Vercel env by host.

@@ -1,6 +1,6 @@
 # Drop-in audio — exact names
 
-- `lobby.mp3` / `lobby.ogg` — 65s funky loop, mono 44.1kHz (~763KB / ~584KB). Host `<audio>` tries ogg first, mp3 fallback for Safari. Missing/broken → synth `startLobbyLoop()` in `lib/sfx.ts`.
+- `lobby.mp3` / `lobby.ogg` — 162s loop, mono 44.1kHz (~1.9MB / ~1.3MB). Host `<audio>` tries ogg first, mp3 fallback for Safari. Missing/broken → synth `startLobbyLoop()` in `lib/sfx.ts`.
 - `sfx/tick.ogg` — countdown tick (Kenney `click_001`, 4.8KB)
 - `sfx/submit.ogg` — submit confirm (Kenney `confirmation_004`, 13KB)
 - `sfx/vote.ogg` — vote pop (OGA `pop1` by cogitollc, 6.5KB)
@@ -9,8 +9,9 @@
 - `sfx/fanfare.ogg` — score jingle (Kenney `jingles_NES05`, 21KB)
 - `sfx/join.ogg` — lobby join chime (Kenney `maximize_001`, 12KB)
 
-Provenance (all CC0, no attribution required):
-- `lobby.*`: `Funked Up` by Joth — https://opengameart.org/content/funked-up (CC0 badge, `Funked Up.mp3` 1.3MB/66s, normalized to mono 96k + `-14 LUFS` + 0.5s in / 5s out fades)
+Provenance:
+- `lobby.*`: host-provided `longlooplobby.mp3` (162s stereo 192k, no ID3 tags — license: host's own file, confirm before any redistribution beyond this game), normalized to mono 96k + `-14 LUFS` + 0.5s in-fade, no trim/out-fade (ships as a designed loop). NOTE: mp3 is 1.9MB, over the 1.5MB loop budget in AGENTS.md — accepted per host pick; ogg is 1.3MB. Raw source kept untracked at `public/audio/longlooplobby.mp3` (gitignored).
+- `lobby-funkedup.*`: `Funked Up` by Joth — https://opengameart.org/content/funked-up (CC0, ex-`lobby.*`, kept for audition).
 - `sfx/*` Kenney: `Interface Sounds` https://kenney.nl/assets/interface-sounds + `Music Jingles` https://kenney.nl/assets/music-jingles (both `License: CC0`)
 - `sfx/vote.ogg`: `Pop sounds` by cogitollc — https://opengameart.org/content/pop-sounds (CC0, `pop1.ogg`)
 
