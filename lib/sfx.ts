@@ -115,6 +115,27 @@ export function revealSting(): void {
   tone({ from: 784, dur: 0.4, type: "triangle", vol: 0.25, delay: 0.68 });
 }
 
+/** Per-card slam during the one-at-a-time reveal walk. */
+export function revealHit(): void {
+  noise({ dur: 0.08, vol: 0.18, highpass: 1400 });
+  tone({ from: 300, to: 700, dur: 0.1, type: "square", vol: 0.16 });
+}
+
+/** Rising heartbeat bed for the vote clock (returns stop). */
+export function startVoteBed(): () => void {
+  if (!ready()) return () => {};
+  let stopped = false;
+  const id = setInterval(() => {
+    if (stopped) return;
+    tone({ from: 140, to: 90, dur: 0.16, type: "sine", vol: 0.1 });
+    tone({ from: 210, dur: 0.1, type: "triangle", vol: 0.05, delay: 0.24 });
+  }, 900);
+  return () => {
+    stopped = true;
+    clearInterval(id);
+  };
+}
+
 /** Single vote lock-in pop. */
 export function votePop(): void {
   tone({ from: 500, to: 900, dur: 0.08, type: "sine", vol: 0.25 });

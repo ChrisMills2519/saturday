@@ -57,6 +57,23 @@ export function roundOf(cur: number, total: number): string {
 export function isFinalRound(cur: number, total: number): boolean {
   return cur >= total;
 }
+export function roundWinnerLine(answer: string, name: string, votes: number): string {
+  const safe = answer.length > 60 ? `${answer.slice(0, 57)}…` : answer;
+  return `${votes} ${votes === 1 ? "vote" : "votes"} · “${safe}”`;
+}
+export function nextRoundLine(round: number, total: number): string {
+  if (round >= total) return "That was the last round — final standings above.";
+  if (round + 1 >= total) return `Next: Round ${round + 1} of ${total} — FINAL ROUND, points are doubled!`;
+  return `Next: Round ${round + 1} of ${total} — scores carry over.`;
+}
+export const MVP_TITLE = "Round winner";
+export const EXTEND_LABEL = "+30 seconds";
+export const SKIP_LABEL = "Skip ahead";
+export const HOST_HINT = "You're the host: read answers loud, keep it moving.";
+export const REVEAL_HINT = "Tap the TV (or press Space) to slam the next answer.";
+export function drawingLabel(): string {
+  return "drawing";
+}
 export const FINAL_TITLE = "Final results!";
 export const FINAL_SUB = "Champion crowned. Rematch, or quit while you're behind.";
 export const REMATCH_LABEL = "Rematch (same code)";

@@ -9,14 +9,17 @@ TV (/host/CODE) <---> Next.js API + Supabase Broadcast <---> Phones (/play/CODE)
 ```
 
 - Host creates a room → 4-letter code (no 0/O/1/I) + QR to `/play/CODE`.
-- Phones join with name (UUID in `localStorage`, no login).
-- Host starts → prompt on phones → submit → reveal on TV → vote → scores.
+- Phones join with name (UUID in `localStorage`, no login). Max 8 players; duplicate names get `(2)`, family-safe names/answers enforced server-side.
+- Host starts → prompt on phones → submit → reveal on TV → vote → scores. Two game modes picked in the lobby: **Write** (text) or **Draw** (finger-paint pad).
+- Scoring: `100` per vote, **final round doubles**, `+250` clean-sweep bonus (every other player picked the same answer). Vote history shows per-round deltas on phones.
 - Realtime: one Broadcast channel per room (`room:CODE`, event `room_updated`). Timers send `ends_at` once; phones count down locally — no per-second server ticks (saves Supabase quota).
-- `submissions.image_url` is reserved for Drawful-style drawing v2. Text games use `text_content`.
+- Prompts: 120 text cards in 8 packs + 30 draw prompts. No repeats within a room (`used_prompts`), each with a phone hint so nobody faces a blank page.
+- `submissions.image_url` carries Drawful-style drawings (canvas data URL, submitted once). Text games use `text_content`.
+- Host-only controls (start/next/kick/extend) use a per-room `host_token` kept in the creating browser's `localStorage`; enforced once the game leaves LOBBY.
 
 ## Local run
 
-1. Supabase → SQL Editor → run `supabase/schema.sql` → expect `Success. No rows returned`.
+1. Supabase → SQL Editor → run `supabase/schema.sql` → expect `Success. No rows returned`. Safe to re-run; it includes `alter table ... add column if not exists` for rooms created before the 2026-09-15 upgrades (`prompt_hint`, `used_prompts`, `input_total`, `host_token`, `round_history`).
 2. Copy `.env.example` to `.env.local`:
    - `NEXT_PUBLIC_SUPABASE_URL` = Project URL (`https://<ref>.supabase.co`)
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = publishable key (`sb_publishable_...`)
@@ -35,6 +38,6 @@ TV (/host/CODE) <---> Next.js API + Supabase Broadcast <---> Phones (/play/CODE)
 
 Laptop `/host/CODE` → HDMI to TV (in-person) or screenshare the tab on Zoom/Discord (remote). Phones scan QR → `/play/CODE`.
 
-## Next (not in bones)
+## Next
 
-Canvas input submitting `image_url`, Storage upload for large drawings, double-vote guard, profanity filter, kick/reconnect.
+Audience mode (late joiners vote at half weight), Storage upload for large drawings, per-prompt custom host input, team play.

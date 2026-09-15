@@ -6,15 +6,19 @@ export type RoomSnapshot = {
   code: string;
   phase: string;
   prompt: string | null;
+  prompt_hint: string | null;
   ends_at: string | null;
   current_round: number;
   total_rounds: number;
   game_type: string;
+  host_token?: string | null;
   seq: number;
   players: { session_id: string; name: string }[];
   submissions: { player_session: string; text_content: string | null; image_url: string | null; votes: number }[];
-  counts: { submitted: number; voted: number; total: number };
+  counts: { submitted: number; voted: number; total: number; input_total: number | null };
   scores: Record<string, number>;
+  round_history: Record<string, Record<string, number>>;
+  used_prompts: string[];
 };
 
 // Single hook both host + phones use. Server is source of truth,

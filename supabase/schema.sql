@@ -4,6 +4,7 @@ create table if not exists rooms (
   phase text not null default 'LOBBY',
   game_type text not null default 'text',
   prompt text,
+  prompt_hint text,
   ends_at timestamptz,
   current_round int not null default 0,
   total_rounds int not null default 3,
@@ -11,6 +12,14 @@ create table if not exists rooms (
   -- Monotonic bump per mutation (join/start/submit/vote/next). Clients
   -- drop broadcasts with seq <= last seen (out-of-order delivery guard).
   seq int not null default 0,
+  -- No-repeat prompt bookkeeping (json array of strings, length = rounds played).
+  used_prompts jsonb not null default '[]'::jsonb,
+  -- Frozen INPUT roster so late joins don't inflate the typing denominator.
+  input_total int,
+  -- Light host auth for start/next/kick/extend (new games get one; legacy rooms stay open).
+  host_token text,
+  -- Per-round vote deltas: { "1": {session: pts}, "2": {...} } — powers phone history + host MVP.
+  round_history jsonb not null default '{}'::jsonb,
   created_at timestamptz default now()
 );
 
@@ -52,6 +61,13 @@ create table if not exists votes (
 -- TTL cleanup (auto-expire rooms older than 24h via /api/cleanup + Vercel
 -- Cron, plus opportunistic purge on room creation). Cascade on the FKs
 -- below means deleting the room row removes players/submissions/votes.
+-- Delta migration for live rooms (no drop): new columns added idempotently; defaults keep old snapshots valid.
+alter table public.rooms add column if not exists prompt_hint text;
+alter table public.rooms add column if not exists used_prompts jsonb not null default '[]'::jsonb;
+alter table public.rooms add column if not exists input_total int;
+alter table public.rooms add column if not exists host_token text;
+alter table public.rooms add column if not exists round_history jsonb not null default '{}'::jsonb;
+
 create index if not exists rooms_created_at_idx on public.rooms (created_at);
 
 -- API role grants. Tables created in the SQL Editor are owned by postgres,

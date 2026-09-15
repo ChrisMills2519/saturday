@@ -6,8 +6,10 @@ import { getSessionId } from "@/lib/gameEngine";
 import { THEME, DISPLAY_FONT, IMAGES, stageBg, answerCard, phoneBtn } from "@/lib/theme";
 import { Mascot } from "@/components/Mascot";
 import { clearDraft, loadDraft, loadJoin, loadVoted, saveDraft, saveJoin, saveVoted } from "@/lib/persistence";
+
 import { useRoom, useCountdown, type RoomSnapshot } from "@/lib/realtime";
-import { TimerIcon, CheckIcon, EyeIcon, TrophyIcon } from "@/components/icons";
+import { DrawPad } from "@/components/DrawPad";
+import { TimerIcon, CheckIcon, EyeIcon, TrophyIcon, DrawIcon } from "@/components/icons";
 import {
   ensureAudio,
   tick,
@@ -64,10 +66,15 @@ function PlayInner({ code }: { code: string }) {
   const [voted, setVoted] = useState<string | null>(null);
   const [voteErr, setVoteErr] = useState<string | null>(null);
   const [submitErr, setSubmitErr] = useState<string | null>(null);
+  const [joinErr, setJoinErr] = useState<string | null>(null);
+  const [joinBusy, setJoinBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [savedAnswer, setSavedAnswer] = useState("");
   const [sid] = useState(() => getSessionId());
   const reduce = useReducedMotion();
   const autoJoined = useRef(false);
   const lastLeft = useRef<number | null>(null);
+  const lastRound = useRef(-1);
 
   useEffect(() => {
     fetch(`/api/rooms/${code}`, { cache: "no-store" })
@@ -100,6 +107,12 @@ function PlayInner({ code }: { code: string }) {
   }, [code, joined, search]);
 
   useEffect(() => {
+    const qName = search.get("name");
+    if (qName && !loadJoin(code)) saveJoin(code, qName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code]);
+
+  useEffect(() => {
     if (!joined || room?.phase !== "INPUT") return;
     setText((cur) => (cur ? cur : loadDraft(code, round)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -109,7 +122,28 @@ function PlayInner({ code }: { code: string }) {
     setVoted(loadVoted(code, round));
     setVoteErr(null);
     setSubmitErr(null);
+    // A new round clears any edit-in-progress (drafts are persisted per round).
+    if (lastRound.current !== round) {
+      lastRound.current = round;
+      setEditing(false);
+      setSavedAnswer("");
+    }
   }, [code, round, room?.phase]);
+
+  // Recover "what did I send" after a refresh: blind INPUT hides it server-side,
+  // so the local draft is the only copy while the round is live.
+  const mySubmission = room?.submissions.find((s) => s.player_session === sid);
+  useEffect(() => {
+    if (room?.phase !== "INPUT" || !mySubmission) return;
+    setSavedAnswer((cur) => cur || loadDraft(code, round));
+  }, [room?.phase, mySubmission, code, round]);
+
+  // Leaving INPUT ends all editing, so the draft can go.
+  useEffect(() => {
+    if (room?.phase === "INPUT") return;
+    clearDraft(code, round);
+    setText("");
+  }, [room?.phase, code, round]);
 
   // Countdown ticks (last 5s) + times-up buzz. Local only, from ends_at.
   useEffect(() => {
@@ -123,15 +157,38 @@ function PlayInner({ code }: { code: string }) {
   }, [left]);
 
   async function join() {
-    if (!name.trim()) return;
+    if (!name.trim() || joinBusy) return;
     ensureAudio();
-    await fetch(`/api/rooms/${code}/join`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), session_id: getSessionId() }),
-    });
-    saveJoin(code, name.trim());
-    setJoined(true);
+    setJoinBusy(true);
+    setJoinErr(null);
+    try {
+      const res = await fetch(`/api/rooms/${code}/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), session_id: getSessionId() }),
+      });
+      const data = await res.json().catch(() => ({} as Record<string, unknown>));
+      if (!res.ok) {
+        const msg = String(data?.error ?? res.status);
+        setJoinErr(
+          msg.includes("room full")
+            ? "Room's full (8 players max) — spectate on the TV!"
+            : msg.includes("family-friendly")
+              ? "Pick a family-friendly name."
+              : `Couldn't join: ${msg}`,
+        );
+        return;
+      }
+      // Server may have deduped the name ("Alex (2)") — use what it settled on.
+      const settled = typeof data?.name === "string" ? (data.name as string) : name.trim();
+      setName(settled);
+      saveJoin(code, settled);
+      setJoined(true);
+    } catch {
+      setJoinErr("Couldn't join — check the code and try again.");
+    } finally {
+      setJoinBusy(false);
+    }
   }
 
   function onText(v: string) {
@@ -139,23 +196,45 @@ function PlayInner({ code }: { code: string }) {
     saveDraft(code, round, v.slice(0, MAX_LEN));
   }
 
-  async function submit() {
-    if (!text.trim()) return;
+  async function sendAnswer(payload: { text_content?: string; image_url?: string }) {
     ensureAudio();
     const res = await fetch(`/api/rooms/${code}/submit`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: getSessionId(), text_content: text.trim() }),
+      body: JSON.stringify({ session_id: getSessionId(), ...payload }),
     });
+    const data = await res.json().catch(() => ({} as Record<string, unknown>));
     if (!res.ok) {
-      setSubmitErr(SUBMIT_LATE);
-      return;
+      setSubmitErr(
+        data?.error === "family-friendly answers only"
+          ? "Keep it family-friendly — try again."
+          : data?.error === "answer too short"
+            ? "Give us a little more than that."
+            : SUBMIT_LATE,
+      );
+      return false;
     }
     submitBlip();
     buzz();
-    clearDraft(code, round);
-    setText("");
+    // Draft is kept so an edit before REVEAL restores it; cleared on round change.
     setSubmitErr(null);
+    setEditing(false);
+    return true;
+  }
+
+  async function submit() {
+    if (!text.trim()) return;
+    const clean = text.trim();
+    const ok = await sendAnswer({ text_content: clean });
+    if (ok) {
+      setSavedAnswer(clean);
+      setText("");
+    }
+  }
+
+  async function submitDrawing(dataUrl: string) {
+    const ok = await sendAnswer({ image_url: dataUrl });
+    if (ok) setText("");
   }
 
   async function vote(player_session: string) {
@@ -183,29 +262,46 @@ function PlayInner({ code }: { code: string }) {
         <p style={codePill}>JOIN {code}</p>
         <h1 style={phoneTitle}>Who are you?</h1>
         <Mascot src={IMAGES.lobby} alt="Host" size={140} />
-        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" style={input} />
-        <motion.button whileTap={{ scale: 0.97 }} onClick={join} style={btn}>Join</motion.button>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" style={input} aria-label="Your name" />
+        <motion.button whileTap={{ scale: 0.97 }} onClick={join} disabled={joinBusy} style={btn}>{joinBusy ? "Joining…" : "Join"}</motion.button>
+        {joinErr && <p role="alert" style={{ color: "#f87171" }}>{joinErr}</p>}
       </main>
     );
   }
 
   if (!room) return <main style={{ ...stageBg, ...wrap }}><p>Loading…</p></main>;
 
+  const isDraw = room.game_type === "draw";
   const mySub = room.submissions.find((s) => s.player_session === sid);
   const votable = room.submissions.filter((s) => s.player_session !== sid);
+  // Draft doubles as the local copy of what you submitted (blind INPUT never
+  // sends it back), so "Edit answer" and the post-submit echo both work.
+  // Loaded in an effect, never during render — SSR has no localStorage.
+  const myDraft = savedAnswer;
   const sortedScores = Object.entries(room.scores)
     .map(([sessionId, pts]) => ({ sessionId, name: nameOf(room, sessionId), pts }))
     .sort((a, b) => b.pts - a.pts);
   const myScore = sortedScores.find((s) => s.sessionId === sid);
   const winner = sortedScores[0];
   const final = isFinalRound(round, room.total_rounds ?? 3);
+  const myRank = sortedScores.findIndex((s) => s.sessionId === sid) + 1;
+  // "R1 +200 · R2 +400" from the server's per-round deltas.
+  const myBreakdown = Object.keys(room.round_history ?? {})
+    .map((k) => ({ k: Number(k), pts: room.round_history[k]?.[sid] ?? 0 }))
+    .filter((e) => e.pts > 0)
+    .sort((a, b) => a.k - b.k)
+    .map((e) => `R${e.k} +${e.pts}`)
+    .join(" · ");
 
   return (
     <main style={{ ...stageBg, ...wrap }}>
-      <p style={codePill}>{code} · {PHASE_STATUS[room.phase] ?? room.phase}</p>
+      <p style={codePill} aria-live="polite" role="status">{code} · {PHASE_STATUS[room.phase] ?? room.phase}</p>
       <h1 style={promptCard}>{room.prompt ?? `Room ${code} — waiting…`}</h1>
       {left !== null && (
         <motion.p
+          role="timer"
+          aria-label={`${left} seconds left`}
+          aria-live="off"
           animate={urgent && !reduce ? { x: [0, -6, 6, -4, 4, 0], scale: [1, 1.08, 1] } : { x: 0, scale: 1 }}
           transition={{ duration: 0.5, repeat: urgent && !reduce ? Infinity : 0, repeatDelay: 1 }}
           style={{ fontSize: 22, fontWeight: 800, color: urgent ? "#f87171" : undefined, display: "flex", alignItems: "center", gap: 8 }}
@@ -213,7 +309,7 @@ function PlayInner({ code }: { code: string }) {
           <TimerIcon size={24} /> {left}s {urgent ? "— HURRY!" : ""}
         </motion.p>
       )}
-      <p style={{ opacity: 0.75, fontWeight: 700 }}>{PHASE_STATUS[room.phase] ?? room.phase}</p>
+      <p style={{ opacity: 0.75, fontWeight: 700 }} aria-live="polite" role="status">{PHASE_STATUS[room.phase] ?? room.phase}</p>
 
       {room.phase === "LOBBY" && (
         <div style={doneCard}>
@@ -225,31 +321,49 @@ function PlayInner({ code }: { code: string }) {
         </div>
       )}
 
-      {room.phase === "INPUT" && !mySub && (
+      {room.phase === "INPUT" && (!mySub || editing) && (
         <>
-          <motion.textarea
-            value={text}
-            onChange={(e) => onText(e.target.value)}
-            placeholder="Your answer…"
-            rows={4}
-            maxLength={MAX_LEN}
-            whileFocus={reduce ? undefined : { scale: 1.02 }}
-            style={input}
-          />
-          <div style={{ fontSize: 13, opacity: 0.6, marginBottom: 8 }}>{text.length}/{MAX_LEN}</div>
-          <motion.button
-            onClick={submit}
-            whileTap={{ scale: 0.95 }}
-            animate={{ backgroundColor: "#7c3aed" }}
-            style={btn}
-          >
-            Submit answer
-          </motion.button>
+          {isDraw ? (
+            <>
+              <p style={{ fontSize: 16, opacity: 0.8, margin: "0 0 4px", display: "flex", alignItems: "center", gap: 8 }}>
+                <DrawIcon size={20} /> {room.prompt_hint ?? "Draw it bold — stick figures count!"}
+              </p>
+              <DrawPad disabled={false} onDone={submitDrawing} />
+            </>
+          ) : (
+            <>
+              <motion.textarea
+                value={text}
+                onChange={(e) => onText(e.target.value)}
+                placeholder={room.prompt_hint ?? "Your answer…"}
+                rows={4}
+                maxLength={MAX_LEN}
+                whileFocus={reduce ? undefined : { scale: 1.02 }}
+                style={input}
+              />
+              <div style={{ fontSize: 13, opacity: 0.6, marginBottom: 8 }}>
+                {text.length}/{MAX_LEN} · {room.prompt_hint ?? "Short + funny wins"}
+              </div>
+              <motion.button
+                onClick={submit}
+                whileTap={{ scale: 0.95 }}
+                animate={{ backgroundColor: "#7c3aed" }}
+                style={btn}
+              >
+                {editing ? "Save changes" : "Submit answer"}
+              </motion.button>
+              {editing && (
+                <button onClick={() => setEditing(false)} style={linkBtn}>
+                  Never mind
+                </button>
+              )}
+            </>
+          )}
           {submitErr && <p style={{ color: "#f87171" }}>{submitErr}</p>}
         </>
       )}
 
-      {room.phase === "INPUT" && mySub && (
+      {room.phase === "INPUT" && mySub && !editing && (
         <div style={doneCard}>
           <AnimatePresence>
             <motion.svg width={72} height={72} viewBox="0 0 72 72" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} style={{ marginTop: 4 }}>
@@ -258,9 +372,22 @@ function PlayInner({ code }: { code: string }) {
             </motion.svg>
           </AnimatePresence>
           <p style={{ fontSize: 20, fontWeight: 700 }}>{SUBMITTED_TITLE}</p>
+          {myDraft && <p style={{ opacity: 0.8, margin: "4px 0" }}>“{myDraft}”</p>}
           <p style={{ opacity: 0.7, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
             <EyeIcon size={22} /> Look at the TV — {room.counts?.submitted ?? room.submissions.length}/{Math.max(room.counts?.total ?? room.players.length, 1)} submitted.
           </p>
+          {!isDraw && (
+            <motion.button
+              whileTap={{ scale: 0.96 }}
+              onClick={() => {
+                setText(myDraft);
+                setEditing(true);
+              }}
+              style={{ ...btn, fontSize: 18, marginTop: 10, background: "#fff" }}
+            >
+              Edit answer
+            </motion.button>
+          )}
         </div>
       )}
 
@@ -270,7 +397,17 @@ function PlayInner({ code }: { code: string }) {
             <EyeIcon size={26} /> {REVEAL_LOOKUP_TITLE}
           </p>
           <p style={{ opacity: 0.7 }}>{REVEAL_LOOKUP_SUB}</p>
-          {mySub && <p style={{ opacity: 0.7 }}>Your answer: “{mySub.text_content ?? "(drawing)"}”</p>}
+          {mySub && (
+            <p style={{ opacity: 0.7 }}>
+              Your answer:{" "}
+              {mySub.image_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={mySub.image_url} alt="Your drawing" style={{ width: "100%", borderRadius: 10, border: "2px solid #111", background: "#fff", marginTop: 6 }} />
+              ) : (
+                `“${mySub.text_content}”`
+              )}
+            </p>
+          )}
         </div>
       )}
 
@@ -279,7 +416,7 @@ function PlayInner({ code }: { code: string }) {
           {voted ? (
             <div style={doneCard}>
               <p style={{ fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                <CheckIcon size={22} animated={!reduce} /> Voted for {nameOf(room, voted)}
+                <CheckIcon size={22} animated={!reduce} /> Vote locked in
               </p>
               <p style={{ opacity: 0.7 }}>{VOTED_TITLE}</p>
             </div>
@@ -298,7 +435,12 @@ function PlayInner({ code }: { code: string }) {
           ) : (
             votable.map((s) => (
               <motion.button key={s.player_session} onClick={() => vote(s.player_session)} whileTap={{ scale: 0.96 }} style={voteBtn}>
-                {s.text_content ?? "(drawing coming in v2)"}
+                {s.image_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={s.image_url} alt="Drawing to vote on" style={{ width: "100%", borderRadius: 10, display: "block", background: "#fff" }} />
+                ) : (
+                  s.text_content
+                )}
               </motion.button>
             ))
           )}
@@ -317,10 +459,16 @@ function PlayInner({ code }: { code: string }) {
               {winner.sessionId === sid ? youWinLine() : myScore ? personalLine(winner.name, myScore.pts) : `${winner.name} wins!`}
             </p>
           )}
+          {myRank > 0 && (
+            <p style={{ fontWeight: 800, opacity: 0.85 }}>
+              You're {ordinal(myRank)} of {sortedScores.length}
+              {myBreakdown ? ` · ${myBreakdown}` : ""}
+            </p>
+          )}
           <ul style={{ listStyle: "none", padding: 0 }}>
-            {sortedScores.map((s) => (
+            {sortedScores.map((s, i) => (
               <li key={s.sessionId} style={s.sessionId === sid ? { ...scoreLi, border: "2px solid #7c3aed" } : scoreLi}>
-                {s.name}: {s.pts}
+                {i + 1}. {s.name}: {s.pts}
               </li>
             ))}
           </ul>
@@ -329,6 +477,12 @@ function PlayInner({ code }: { code: string }) {
       )}
     </main>
   );
+}
+
+function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0]}`;
 }
 
 const wrap: React.CSSProperties = { padding: 20, maxWidth: 520, margin: "0 auto", minHeight: "100dvh", color: "#fff" };
@@ -340,3 +494,4 @@ const btn: React.CSSProperties = { ...phoneBtn, padding: 16, fontSize: 22, margi
 const voteBtn: React.CSSProperties = { ...answerCard, display: "block", width: "100%", boxSizing: "border-box", padding: 16, fontSize: 20, fontWeight: 800, margin: "8px 0", cursor: "pointer", textAlign: "left" };
 const doneCard: React.CSSProperties = { ...answerCard, padding: 18, textAlign: "center" };
 const scoreLi: React.CSSProperties = { ...answerCard, fontSize: 20, fontWeight: 800, padding: "10px 14px", margin: "6px 0", listStyle: "none" };
+const linkBtn: React.CSSProperties = { display: "block", width: "100%", boxSizing: "border-box", margin: "8px 0 0", padding: 12, fontSize: 16, fontWeight: 800, borderRadius: 12, background: "transparent", color: "#fff", border: "2px solid rgba(255,255,255,0.35)", cursor: "pointer" };

@@ -11,6 +11,8 @@ import {
   tick,
   timesUp,
   revealSting,
+  revealHit,
+  startVoteBed,
   fanfare,
   joinChime,
   startLobbyLoop,
@@ -39,9 +41,16 @@ import {
   REMATCH_LABEL,
   ONE_MORE_LABEL,
   roundOf,
-  isFinalRound,
   winnerLine,
   SCORE_EMPTY,
+  roundWinnerLine,
+  nextRoundLine,
+  EXTEND_LABEL,
+  SKIP_LABEL,
+  HOST_HINT,
+  REVEAL_HINT,
+  MVP_TITLE,
+  drawingLabel,
 } from "@/lib/hostCopy";
 import {
   TimerIcon,
@@ -54,6 +63,8 @@ import {
   MedalIcon,
 } from "@/components/icons";
 import { PlayerParade } from "@/components/PlayerParade";
+import { hostHeaders, setHostToken, getHostToken } from "@/lib/hostToken";
+import { isFinalRound, MAX_PLAYERS } from "@/lib/gameEngine";
 import type { Phase } from "@/app/preview/HumanoidWalker";
 
 const PHASE_STATUS: Record<Phase, string> = {
@@ -129,12 +140,12 @@ function BtnLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function TimerBar({ left, total = 90 }: { left: number | null; total?: number }) {
+function TimerBar({ left, total = 60 }: { left: number | null; total?: number }) {
   if (left === null) return null;
   const pct = Math.max(0, Math.min(1, left / total));
   const urgent = left <= 10;
   return (
-    <div style={{ marginTop: 8, maxWidth: 520 }}>
+    <div style={{ marginTop: 8, maxWidth: 520 }} role="timer" aria-label={`${left} seconds left`} aria-live="off">
       <div
         style={{
           display: "flex",
@@ -177,8 +188,13 @@ export default function HostPage({ params }: { params: { code: string } }) {
   const [muted, setMutedState] = useState(false);
   const [soundOn, setSoundOn] = useState(false);
   const [rounds, setRounds] = useState(3);
+  const [gameType, setGameType] = useState<"text" | "draw">("text");
   const [startErr, setStartErr] = useState<string | null>(null);
+  const [actionErr, setActionErr] = useState<string | null>(null);
+  const [advancing, setAdvancing] = useState(false);
   const [oneLiner, setOneLiner] = useState(0);
+  const [revealed, setRevealed] = useState(0);
+  const [tallyShown, setTallyShown] = useState(false);
   const lastLeft = useRef<number | null>(null);
   const lastPlayers = useRef(0);
   const lobbyAudio = useRef<HTMLAudioElement | null>(null);
@@ -201,11 +217,28 @@ export default function HostPage({ params }: { params: { code: string } }) {
     if (ensureAudio()) setSoundOn(true);
     const res = await fetch(path, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...hostHeaders(code) },
       body: body ? JSON.stringify(body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok, data };
+  }
+
+  // The creating browser stored its host token in localStorage (app/page.tsx).
+  // A TV tab opened on another device just plays as a spectator screen; the
+  // server only enforces the token once the game has left LOBBY.
+  const [hasToken] = useState(() => !!getHostToken(code));
+
+  async function advance(to: string) {
+    if (advancing) return;
+    setAdvancing(true);
+    setActionErr(null);
+    try {
+      const { ok, data } = await post(`/api/rooms/${code}/next`, { to });
+      if (!ok) setActionErr(`Couldn't advance: ${data?.error ?? "unknown"}`);
+    } finally {
+      setAdvancing(false);
+    }
   }
 
   function toggleMute() {
@@ -223,6 +256,52 @@ export default function HostPage({ params }: { params: { code: string } }) {
     }
     if (room?.phase === "REVEAL") revealSting();
   }, [room?.phase, room?.current_round]);
+
+  // Reset the one-at-a-time reveal counter whenever the round/phase changes.
+  const answerCount = room?.submissions.length ?? 0;
+  useEffect(() => {
+    setRevealed(0);
+    setTallyShown(false);
+  }, [room?.phase, room?.current_round]);
+
+  // Auto-slam the next answer card while REVEAL is on screen (host can also tap).
+  useEffect(() => {
+    if (room?.phase !== "REVEAL") return;
+    if (reduce) {
+      setRevealed(answerCount);
+      return;
+    }
+    if (revealed >= answerCount) return;
+    const id = setTimeout(() => {
+      setRevealed((n) => Math.min(answerCount, n + 1));
+      revealHit();
+    }, revealed === 0 ? 700 : 2300);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room?.phase, revealed, answerCount, reduce]);
+
+  // Space / click on the TV slams the next answer early.
+  useEffect(() => {
+    if (room?.phase !== "REVEAL") return;
+    const bump = () => setRevealed((n) => Math.min(answerCount, n + 1));
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === "Space" || e.key === " ") {
+        e.preventDefault();
+        bump();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [room?.phase, answerCount]);
+
+  // Tally drama: let bars grow from zero when SCORE appears.
+  useEffect(() => {
+    if (room?.phase !== "SCORE") return;
+    setTallyShown(false);
+    const id = setTimeout(() => setTallyShown(true), reduce ? 0 : 350);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room?.phase, room?.current_round, reduce]);
 
   // Lobby entrance chime when the roster grows.
   useEffect(() => {
@@ -246,7 +325,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
     return () => clearInterval(id);
   }, [room?.phase, room?.current_round]);
 
-  // Lobby music: mp3 if present, else synth loop.
+  // Music beds: lobby track in LOBBY, a tense pulse during VOTE.
   useEffect(() => {
     const el = lobbyAudio.current;
     const lobby = room?.phase === "LOBBY" && soundOn && !muted;
@@ -265,6 +344,12 @@ export default function HostPage({ params }: { params: { code: string } }) {
     }
   }, [room?.phase, soundOn, muted, musicOk]);
 
+  // Vote bed: low pulse so the room feels the clock without per-second broadcasts.
+  useEffect(() => {
+    if (room?.phase !== "VOTE" || !soundOn || muted) return;
+    return startVoteBed();
+  }, [room?.phase, soundOn, muted]);
+
   // Keep the LOBBY rounds stepper in sync with the server (default 3).
   useEffect(() => {
     if (room?.phase === "LOBBY" && typeof room.total_rounds === "number") {
@@ -276,19 +361,41 @@ export default function HostPage({ params }: { params: { code: string } }) {
 
   async function startGame() {
     setStartErr(null);
-    const { ok, data } = await post(`/api/rooms/${code}/start`, { total_rounds: rounds });
+    const { ok, data } = await post(`/api/rooms/${code}/start`, { total_rounds: rounds, game_type: gameType });
     if (!ok) setStartErr(data?.error === "need 2+ players to start" ? "Need 2+ players — get one more phone in!" : `Couldn't start: ${data?.error ?? "unknown"}`);
   }
 
-  // Auto-advance INPUT -> REVEAL when the timer expires.
+  async function extendTime() {
+    setActionErr(null);
+    const { ok, data } = await post(`/api/rooms/${code}/extend`, { seconds: 30 });
+    if (!ok) setActionErr(`Couldn't add time: ${data?.error ?? "unknown"}`);
+  }
+
+  async function kick(target: string, label: string) {
+    if (!window.confirm(`Remove ${label} from the game?`)) return;
+    setActionErr(null);
+    const { ok, data } = await post(`/api/rooms/${code}/kick`, { target_session: target });
+    if (!ok) setActionErr(`Couldn't remove ${label}: ${data?.error ?? "unknown"}`);
+  }
+
+  // Auto-advance INPUT -> REVEAL and VOTE -> SCORE when the timer expires.
+  // Server clears ends_at on the destination phase, so left hits 0 once.
   useEffect(() => {
-    if (!room || room.phase !== "INPUT" || left !== 0) return;
-    const key = `${code}:${room.current_round}`;
+    if (!room || left !== 0) return;
+    if (room.phase !== "INPUT" && room.phase !== "VOTE") return;
+    const to = room.phase === "INPUT" ? "REVEAL" : "SCORE";
+    const key = `${code}:${room.current_round}:${room.phase}`;
     if (autoFired.current === key) return;
     autoFired.current = key;
-    post(`/api/rooms/${code}/next`, { to: "REVEAL" });
+    post(`/api/rooms/${code}/next`, { to });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [left, room?.phase, room?.current_round, code]);
+
+  // Focus the phase heading on change so screen readers announce it.
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+  useEffect(() => {
+    headingRef.current?.focus();
+  }, [room?.phase, room?.current_round]);
 
   if (!room)
     return (
@@ -307,6 +414,11 @@ export default function HostPage({ params }: { params: { code: string } }) {
   const sortedScores = Object.entries(room.scores)
     .map(([sid, pts]) => ({ sid, name: nameOf(room, sid), pts }))
     .sort((a, b) => b.pts - a.pts);
+  // Round MVP: the answer with the most votes this round (ties → earliest).
+  const roundMvp = room.submissions.reduce<null | (typeof room.submissions)[number]>(
+    (best, s) => (!best || (s.votes ?? 0) > (best.votes ?? 0) ? s : best),
+    null,
+  );
   // Mascot swaps by phase: lobby idle, reveal/vote excited, score trophy.
   const mascotSrc =
     phase === "SCORE" ? IMAGES.score : phase === "LOBBY" ? IMAGES.lobby : IMAGES.reveal;
@@ -334,10 +446,10 @@ export default function HostPage({ params }: { params: { code: string } }) {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={qr} alt="Join QR" width={150} height={150} style={{ background: "#fff", padding: 8, borderRadius: 14, border: "3px solid #111", boxShadow: "5px 5px 0 #111" }} />
               <div>
-                <div style={{ fontFamily: DISPLAY_FONT, fontSize: 24 }}>
+                <div style={{ fontFamily: DISPLAY_FONT, fontSize: 24 }} aria-live="polite" role="status">
                   {room.phase === "LOBBY" ? `Best of ${totalRounds}` : roundOf(room.current_round, totalRounds)} · {PHASE_STATUS[phase] ?? phase}
                 </div>
-                <TimerBar left={left} />
+                <TimerBar left={left} total={room.phase === "VOTE" ? 30 : 60} />
                 <div style={{ marginTop: 6, fontSize: 18, opacity: 0.85 }}>Players: {room.players.length}</div>
               </div>
               <Mascot src={mascotSrc} alt="Saturday host" size={170} bounce={mascotBounce} />
@@ -346,10 +458,10 @@ export default function HostPage({ params }: { params: { code: string } }) {
         )}
 
         <AnimatePresence mode="wait">
-          <motion.section key={room.phase + room.current_round} variants={phaseV} initial="hidden" animate="show" exit="exit">
+          <motion.section key={room.phase + room.current_round} variants={phaseV} initial="hidden" animate="show" exit="exit" aria-live="polite" aria-label={PHASE_STATUS[phase] ?? phase}>
             {room.phase === "LOBBY" && (
               <>
-                <h2 style={outlineTitle(56)}>{LOBBY_TITLE}</h2>
+                <h2 ref={headingRef} tabIndex={-1} style={{ ...outlineTitle(56), outline: "none" }}>{LOBBY_TITLE}</h2>
                 <p style={sub}>{COLD_OPEN}</p>
                 <p style={{ ...sub, opacity: 0.75 }}>{LOBBY_SUB}</p>
                 <PlayerParade phase="LOBBY" players={room.players} disabled={!!reduce} height={240} />
@@ -369,22 +481,52 @@ export default function HostPage({ params }: { params: { code: string } }) {
                 ) : (
                   <p style={{ fontSize: 22, fontWeight: 800 }}>{lobbyReady(room.players.length)}</p>
                 )}
-                <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8 }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 20, fontWeight: 800 }}>Rounds:</span>
                   <button onClick={() => setRounds((r) => Math.max(1, r - 1))} style={stepBtn} aria-label="Fewer rounds">−</button>
                   <span style={{ fontFamily: DISPLAY_FONT, fontSize: 28, minWidth: 40, textAlign: "center" }}>{rounds}</span>
                   <button onClick={() => setRounds((r) => Math.min(9, r + 1))} style={stepBtn} aria-label="More rounds">+</button>
+                  <span style={{ marginLeft: 12, fontSize: 20, fontWeight: 800 }}>Game:</span>
+                  <button
+                    onClick={() => setGameType("text")}
+                    style={{ ...stepBtn, width: "auto", padding: "0 16px", background: gameType === "text" ? THEME.teal : "#fff" }}
+                    aria-pressed={gameType === "text"}
+                  >
+                    Write
+                  </button>
+                  <button
+                    onClick={() => setGameType("draw")}
+                    style={{ ...stepBtn, width: "auto", padding: "0 16px", background: gameType === "draw" ? THEME.pink : "#fff" }}
+                    aria-pressed={gameType === "draw"}
+                  >
+                    Draw
+                  </button>
                 </div>
+                <p style={{ fontSize: 18, opacity: 0.7, fontStyle: "italic" }}>{HOST_HINT}</p>
                 <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={startGame}>
                   Start round
                 </motion.button>
                 {startErr && <p style={{ color: "#ff8a8a", fontSize: 20, fontWeight: 800 }}>{startErr}</p>}
+                {room.players.length > 0 && hasToken && (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                    {room.players.map((p) => (
+                      <button
+                        key={p.session_id}
+                        onClick={() => kick(p.session_id, p.name)}
+                        style={kickBtn}
+                        aria-label={`Remove ${p.name}`}
+                      >
+                        Remove {p.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </>
             )}
 
             {room.phase === "INPUT" && (
               <>
-                <h2 style={outlineTitle(48)}>{roundTitle(room.current_round)}</h2>
+                <h2 ref={headingRef} tabIndex={-1} style={{ ...outlineTitle(48), outline: "none" }}>{roundTitle(room.current_round)}</h2>
                 <div style={promptHero}>{room.prompt}</div>
                 <p style={sub}>{INPUT_SUB}</p>
                 <p style={{ fontSize: 24, fontWeight: 800 }}>{inputNudge(submitted, total)}</p>
@@ -408,50 +550,82 @@ export default function HostPage({ params }: { params: { code: string } }) {
                     );
                   })}
                 </motion.div>
-                <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
-                  <motion.button whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={() => post(`/api/rooms/${code}/next`, { to: "REVEAL" })}>
+                <div style={{ display: "flex", gap: 12, marginTop: 24, flexWrap: "wrap" }}>
+                  <motion.button whileTap={{ scale: 0.96 }} style={tvBtn} onClick={extendTime} aria-label="Add 30 seconds">
+                    <BtnLabel><TimerIcon size={22} /> {EXTEND_LABEL}</BtnLabel>
+                  </motion.button>
+                  <motion.button whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={() => advance("REVEAL")} disabled={advancing} aria-label="Reveal answers">
                     <BtnLabel>Reveal <MaskIcon size={24} /></BtnLabel>
                   </motion.button>
                 </div>
+                {actionErr && <p role="alert" style={{ color: "#ff8a8a", fontSize: 20, fontWeight: 800 }}>{actionErr}</p>}
               </>
             )}
 
             {room.phase === "REVEAL" && (
               <>
-                <h2 style={{ ...outlineTitle(52), display: "flex", alignItems: "center", gap: 12 }}>
+                <h2 ref={headingRef} tabIndex={-1} style={{ ...outlineTitle(52), display: "flex", alignItems: "center", gap: 12, outline: "none" }}>
                   <MaskIcon size={40} /> {REVEAL_TITLE}
                 </h2>
                 <div style={promptHero}>{room.prompt}</div>
                 <p style={sub}>{REVEAL_SUB}</p>
-                <motion.div variants={grid} initial="hidden" animate="show" style={gridStyle}>
-                  {room.submissions.map((s, i) => (
-                    <motion.div key={s.player_session} variants={cardV} whileHover={reduce ? undefined : { scale: 1.04, rotate: -1 }} style={{ ...answerCard, ...card, transform: `rotate(${i % 2 ? 1 : -1}deg)` }}>
-                      {s.image_url ? (
-                        <p style={{ fontSize: 24, display: "flex", alignItems: "center", gap: 10 }}>
-                          <DrawIcon size={26} /> (drawing)
-                        </p>
-                      ) : (
-                        <p style={{ fontSize: 26, fontWeight: 800 }}>{s.text_content}</p>
-                      )}
-                      <small style={{ opacity: 0.6 }}>{REVEAL_ANON}</small>
-                    </motion.div>
-                  ))}
+                <p style={{ fontSize: 18, opacity: 0.7, fontStyle: "italic" }}>
+                  {revealed < answerCount ? REVEAL_HINT : "That's the lot. Start voting."}
+                </p>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", fontWeight: 800, fontSize: 20 }}>
+                  {Math.min(revealed, answerCount)} / {answerCount} answers up
+                </div>
+                <motion.div style={gridStyle} onClick={() => setRevealed((n) => Math.min(answerCount, n + 1))}>
+                  <AnimatePresence>
+                    {room.submissions.slice(0, revealed).map((s, i) => (
+                      <motion.div
+                        key={s.player_session}
+                        layout
+                        initial={reduce ? { opacity: 0 } : { opacity: 0, y: 40, rotate: -2, scale: 0.92 }}
+                        animate={{ opacity: 1, y: 0, rotate: 0, scale: 1 }}
+                        transition={{ type: "spring", stiffness: 260, damping: 20 }}
+                        whileHover={reduce ? undefined : { scale: 1.04, rotate: -1 }}
+                        style={{ ...answerCard, ...card, transform: `rotate(${i % 2 ? 1 : -1}deg)` }}
+                      >
+                        {s.image_url ? (
+                          <div>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={s.image_url} alt="Drawing" style={{ width: "100%", borderRadius: 10, border: "2px solid #111", background: "#fff", display: "block" }} />
+                          </div>
+                        ) : (
+                          <p style={{ fontSize: 26, fontWeight: 800 }}>{s.text_content}</p>
+                        )}
+                        <small style={{ opacity: 0.6 }}>{REVEAL_ANON}</small>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                  {revealed < answerCount && (
+                    <div style={{ ...answerCard, ...card, opacity: 0.35, display: "grid", placeItems: "center" }}>
+                      <span style={{ fontFamily: DISPLAY_FONT, fontSize: 30 }}>?</span>
+                    </div>
+                  )}
                 </motion.div>
-                <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
-                  <motion.button whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={() => post(`/api/rooms/${code}/next`, { to: "VOTE" })}>
+                <div style={{ display: "flex", gap: 12, marginTop: 24, flexWrap: "wrap" }}>
+                  {revealed < answerCount && (
+                    <motion.button whileTap={{ scale: 0.96 }} style={tvBtn} onClick={() => setRevealed(answerCount)} aria-label="Show every answer">
+                      Show all
+                    </motion.button>
+                  )}
+                  <motion.button whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={() => advance("VOTE")} disabled={advancing} aria-label="Start voting">
                     <BtnLabel>Start voting <BallotIcon size={24} /></BtnLabel>
                   </motion.button>
                 </div>
+                {actionErr && <p role="alert" style={{ color: "#ff8a8a", fontSize: 20, fontWeight: 800 }}>{actionErr}</p>}
               </>
             )}
 
             {room.phase === "VOTE" && (
               <>
-                <h2 style={{ ...outlineTitle(52), display: "flex", alignItems: "center", gap: 12 }}>
+                <h2 ref={headingRef} tabIndex={-1} style={{ ...outlineTitle(52), display: "flex", alignItems: "center", gap: 12, outline: "none" }}>
                   <BallotIcon size={40} /> {VOTE_TITLE}
                 </h2>
                 <p style={sub}>{VOTE_SUB}</p>
-                <p style={{ fontSize: 22, fontWeight: 800 }}>{voteProgress(totalVotes, total)}</p>
+                <p style={{ fontSize: 22, fontWeight: 800 }} aria-live="polite" role="status">{voteProgress(totalVotes, total)}</p>
                 {room.submissions.length <= 1 && <p style={sub}>{VOTE_NEED_MORE}</p>}
                 <motion.div variants={grid} initial="hidden" animate="show" style={gridStyle}>
                   {room.submissions.map((s, i) => (
@@ -469,44 +643,76 @@ export default function HostPage({ params }: { params: { code: string } }) {
                     </motion.div>
                   ))}
                 </motion.div>
-                <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
-                  <motion.button whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={() => post(`/api/rooms/${code}/next`, { to: "SCORE" })}>
+                <div style={{ display: "flex", gap: 12, marginTop: 24, flexWrap: "wrap" }}>
+                  <motion.button whileTap={{ scale: 0.96 }} style={tvBtn} onClick={extendTime} aria-label="Add 30 seconds">
+                    <BtnLabel><TimerIcon size={22} /> {EXTEND_LABEL}</BtnLabel>
+                  </motion.button>
+                  <motion.button whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={() => advance("SCORE")} disabled={advancing} aria-label="Show scores">
                     <BtnLabel>Show scores <TrophyIcon size={24} /></BtnLabel>
                   </motion.button>
                 </div>
+                {actionErr && <p role="alert" style={{ color: "#ff8a8a", fontSize: 20, fontWeight: 800 }}>{actionErr}</p>}
               </>
             )}
 
             {room.phase === "SCORE" && (
               <>
-                <h2 style={{ ...outlineTitle(52), display: "flex", alignItems: "center", gap: 12 }}>
+                <h2 ref={headingRef} tabIndex={-1} style={{ ...outlineTitle(52), display: "flex", alignItems: "center", gap: 12, outline: "none" }}>
                   <TrophyIcon size={40} /> {final ? FINAL_TITLE : SCORE_TITLE}
                 </h2>
                 {final && <p style={sub}>{FINAL_SUB}</p>}
-                <PlayerParade phase="SCORE" players={room.players} disabled={!!reduce} height={200} />
-                <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginTop: 16, minHeight: 220 }}>
-                  {sortedScores.map((e, i) => (
-                    <motion.div
-                      key={e.sid}
-                      layout
-                      transition={{ type: "spring", stiffness: 200, damping: 26 }}
-                      style={{ ...podiumBar, height: 80 + (sortedScores.length - i) * 30, background: i === 0 ? THEME.yellow : "#2a2350", color: i === 0 ? "#111" : "#fff" }}
-                    >
-                      <MedalIcon rank={i + 1} size={30} />
-                      <strong>{e.name}</strong>
-                      <AnimatePresence mode="popLayout">
-                        <motion.span
-                          key={e.pts}
-                          initial={reduce ? {} : { scale: 1.6, color: "#fbbf24" }}
-                          animate={{ scale: 1, color: i === 0 ? "#111" : "#fff" }}
-                          transition={{ type: "spring", stiffness: 500, damping: 18 }}
-                          style={{ fontWeight: 800, fontSize: 24, fontFamily: DISPLAY_FONT }}
-                        >
-                          {e.pts}
-                        </motion.span>
-                      </AnimatePresence>
-                    </motion.div>
-                  ))}
+                <p style={{ ...sub, opacity: 0.8 }}>{nextRoundLine(room.current_round, totalRounds)}</p>
+                {roundMvp && (
+                  <motion.div
+                    initial={reduce ? { opacity: 0 } : { opacity: 0, y: -18, scale: 0.9 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ type: "spring", stiffness: 240, damping: 20 }}
+                    style={{ ...answerCard, padding: "14px 20px", margin: "10px 0", maxWidth: 780 }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: DISPLAY_FONT, fontSize: 18, letterSpacing: 1 }}>
+                      <TrophyIcon size={22} /> {MVP_TITLE.toUpperCase()}
+                    </div>
+                    <div style={{ fontSize: 26, fontWeight: 800, marginTop: 4 }}>
+                      {roundMvp.image_url ? (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                          <DrawIcon size={26} /> {drawingLabel()}
+                        </span>
+                      ) : (
+                        roundMvp.text_content
+                      )}
+                    </div>
+                    <small style={{ opacity: 0.75 }}>{roundWinnerLine(String(roundMvp.text_content ?? "drawing"), nameOf(room, roundMvp.player_session), roundMvp.votes)}</small>
+                  </motion.div>
+                )}
+                <PlayerParade phase="SCORE" players={room.players} disabled={!!reduce} height={180} />
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginTop: 16, minHeight: 240 }}>
+                  {sortedScores.map((e, i) => {
+                    const top = sortedScores[0]?.pts || 1;
+                    const h = 70 + Math.round((e.pts / top) * 150);
+                    return (
+                      <motion.div
+                        key={e.sid}
+                        layout
+                        transition={{ type: "spring", stiffness: 200, damping: 26 }}
+                        animate={{ height: tallyShown ? h : 0 }}
+                        style={{ ...podiumBar, background: i === 0 ? THEME.yellow : "#2a2350", color: i === 0 ? "#111" : "#fff", overflow: "hidden" }}
+                      >
+                        <MedalIcon rank={i + 1} size={30} />
+                        <strong>{e.name}</strong>
+                        <AnimatePresence mode="popLayout">
+                          <motion.span
+                            key={e.pts}
+                            initial={reduce ? {} : { scale: 1.6, color: "#fbbf24" }}
+                            animate={{ scale: 1, color: i === 0 ? "#111" : "#fff" }}
+                            transition={{ type: "spring", stiffness: 500, damping: 18 }}
+                            style={{ fontWeight: 800, fontSize: 24, fontFamily: DISPLAY_FONT }}
+                          >
+                            {e.pts}
+                          </motion.span>
+                        </AnimatePresence>
+                      </motion.div>
+                    );
+                  })}
                   {sortedScores.length === 0 && <p style={{ opacity: 0.6 }}>{SCORE_EMPTY}</p>}
                 </div>
                 {sortedScores[0] && (
@@ -517,18 +723,19 @@ export default function HostPage({ params }: { params: { code: string } }) {
                 <div style={{ display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
                   {final ? (
                     <>
-                      <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={() => post(`/api/rooms/${code}/next`, { to: "LOBBY" })}>
+                      <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={() => advance("LOBBY")} disabled={advancing} aria-label="Rematch with same code">
                         {REMATCH_LABEL}
                       </motion.button>
-                      <motion.button whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn, background: "#fff" }} onClick={() => post(`/api/rooms/${code}/next`, { to: "INPUT" })}>
+                      <motion.button whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn, background: "#fff" }} onClick={() => advance("INPUT")} disabled={advancing} aria-label="Play one more round">
                         {ONE_MORE_LABEL} →
                       </motion.button>
                     </>
                   ) : (
-                    <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={() => post(`/api/rooms/${code}/next`, { to: "INPUT" })}>
+                    <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={() => advance("INPUT")} disabled={advancing} aria-label="Next round">
                       Next round →
                     </motion.button>
                   )}
+                  {actionErr && <p role="alert" style={{ color: "#ff8a8a", fontSize: 20, fontWeight: 800 }}>{actionErr}</p>}
                 </div>
               </>
             )}
@@ -562,3 +769,4 @@ const bigBtn: React.CSSProperties = { padding: "16px 32px", fontSize: 24, margin
 const stepBtn: React.CSSProperties = { width: 44, height: 44, fontSize: 24, fontWeight: 800, borderRadius: 12, border: "3px solid #111", background: "#fff", color: "#111", boxShadow: "3px 3px 0 #111", cursor: "pointer" };
 const podiumBar: React.CSSProperties = { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", gap: 6, padding: 14, borderRadius: 14, border: "3px solid #111", boxShadow: "5px 5px 0 #111" };
 const soundBtn: React.CSSProperties = { position: "fixed", bottom: 16, right: 16, zIndex: 60, padding: "10px 16px", fontSize: 15, fontWeight: 800, borderRadius: 999, background: "rgba(255,255,255,0.12)", color: "#fff", border: "1px solid rgba(255,255,255,0.25)", cursor: "pointer" };
+const kickBtn: React.CSSProperties = { padding: "8px 14px", fontSize: 15, fontWeight: 800, borderRadius: 999, background: "rgba(255,255,255,0.10)", color: "#ffb4b4", border: "2px solid rgba(255,120,120,0.55)", cursor: "pointer" };

@@ -198,3 +198,58 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 **Verified:** `typecheck` clean, `build` green (host 5.3 / play 4.71 kB). Live 13/13 API loop: create default/clamp (3, 9), solo + 1-player start 400, 2-player start 200 with override to 2, full 2-round game (submit→reveal→vote→score ×2, scores accumulate 1–1), SCORE r2 final (2>=2), rematch →LOBBY `r0 scores={} ends=null`. Pages `/ /host /play /preview` all 200; lobby mp3/ogg serve exact normalized bytes. NOTE: I deleted the gitignored 3.8MB `longlooplobby.mp3` raw before seeing the concurrent entry that meant to keep it on disk — normalized `lobby.*` preserve the audio; re-drop the raw if the stereo source is ever needed.
 
 **What's next:** push → Vercel redeploy + phone-on-mobile-data test → drawing v2 (DrawPad canvas → `image_url` submit-once, `DRAW_PROMPTS`, host/phone image rendering; Storage upload only if dataURL feels slow).
+
+## 2026-09-15 — Instant advance + blind voting + vote timer + join/a11y hardening
+
+**What changed:** per playtest feedback ("don't wait when all in", "don't tell me who I voted for") + 3-subagent review.
+- `submit/route.ts`: after upsert, re-read `getSnapshot()` counts; if `INPUT && total>=2 && submitted>=total && canTransition(INPUT,REVEAL)`, flip `phase=REVEAL, ends_at=null` before `bumpSeq+broadcast`. Host timer stays as fallback for partial submits. Late joiners landing in REVEAL become spectators (no submission).
+- `roomService.ts getSnapshot()`: VOTE now redacts per-answer `votes→0` + `scores→{}` (server-enforced); only `counts.voted/total` (N/M) leaves the server. SCORE returns full tallies. INPUT blind unchanged.
+- `play/[code]/page.tsx`: vote confirmation is generic "Vote locked in" (`VOTED_TITLE`), no target name (kills shoulder-surf). `?name=` landing now `saveJoin()` on mount so refresh keeps session; `join()` gets pending disabled + error line + `aria-label`.
+- `next/route.ts`: `→VOTE` now sets `ends_at=+30s` (was null) so one AFK phone can't stall the game.
+- `host/[code]/page.tsx`: auto-advance covers `INPUT→REVEAL` + `VOTE→SCORE` (keyed `code:round:phase`); `TimerBar` default 60s, 30s in VOTE, `role=timer`; all advance buttons go through `advance()` helper (pending disabled + `actionErr` line + `aria-label`); phase status + vote progress get `role=status aria-live=polite`; phase `h2`s get `ref+tabIndex=-1` focus on phase/round change.
+- Phone timer gets `role=timer`, phase pill gets `role=status aria-live`.
+
+**Why:** Jackbox pattern (Quiplash/Fibbage/Drawful): skip wait when all in, blind vote with tallies only at reveal, short vote clock, progress-only host. Keeps AGENTS.md invariants: server-authoritative API writes + `broadcastRoom`, engine-gated transitions, single `ends_at` + local `useCountdown`, generic submissions.
+
+**Verified:** `npm run typecheck` clean; `npm run build` green (host 5.63 / play 4.9 kB). Mental smoke: create→join×2→submit×2→instant REVEAL broadcast; vote→generic confirmation→SCORE tallies appear; VOTE `ends_at` set, host auto-fires `→SCORE` at 0.
+
+**What's next:** live 2-phone test (instant REVEAL timing, VOTE 30s auto-score, refresh-reconnect) → consider freezing INPUT roster vs live `total` if late joins cause confusion → drawing v2.
+
+## 2026-09-15 — Jackbox audit: scoring rubber-band, prompt library, drawing v2, host controls
+
+**What changed (user: ".audit the game again [against] the jackbox games … work through them, just keep going"):** worked the whole audit list into the game.
+
+*Scoring (the flat-game fix)*
+- `lib/gameEngine.ts`: `SCORE_PER_VOTE=100`, `FINAL_MULTIPLIER=2`, `UNANIMOUS_BONUS=250`, plus `voteWorth()`/`isCleanSweep()`. **Final round doubles** every vote; a clean sweep adds 250.
+- Found + fixed a logical dead end: the old "unanimous" check (`votes === voterCount`) was **unreachable**, because you can never vote for your own answer — max votes on any answer is `voterCount - 1`. `isCleanSweep` now keys off `voterCount - 1` and requires 3+ players.
+- `rooms.round_history` jsonb (`{"1": {sid: pts}}`) records per-round deltas; vote route appends, phones render `R1 +200 · R2 +400`, host gets a **Round winner (MVP)** card with the winning answer + vote count.
+
+*Theatre*
+- TV REVEAL is now **one answer at a time**: card slams every 2.3s (700ms for the first), tap the TV or press Space to slam early, `Show all` to skip, `N/M answers up` counter, `?` placeholder card for what's still hidden, new `revealHit()` SFX per card.
+- SCORE bars now grow from zero (tally drama) and are **proportional to points** (was rank-shaped, so ties looked like stairs).
+- `startVoteBed()` — low heartbeat under VOTE so the clock is felt; lobby music unchanged.
+
+*Prompts (replayability)*
+- `lib/prompts_text.ts`: **120 cards in 8 packs** (advice/patch/lore/label/text/slogan/imagine/open), each with a phone hint; `lib/prompts_draw.ts`: **30 draw prompts + hints**; `lib/prompts.ts` re-exports both with back-compat helpers.
+- No repeats per room via `rooms.used_prompts` (last 120 kept, resets when exhausted). `rooms.prompt_hint` carries the hint to phones so nobody faces a blank page.
+
+*Social safety + structure*
+- `lib/validation.ts`: family-safe **name + answer filter** (strong terms match as substrings so "Shitface" is caught, mild terms match whole words to avoid the Scunthorpe problem), control-char strip, 16-char names, 140-char answers, 600KB drawing cap. Duplicate names auto-suffix (`alex (2)`), `MAX_PLAYERS=8`, join 400s when full.
+- `rooms.input_total` freezes the INPUT denominator at round start so mid-round joins stop corrupting `N/M submitted` (cleared on REVEAL/SCORE).
+- `host_token` (minted on create, stored in the creating browser's `localStorage`, **never** in the public snapshot) now guards `next`/`extend`/`kick` once the game leaves LOBBY — LOBBY stays open so a replacement TV can start the game if the host device dies.
+- New `POST /api/rooms/[code]/extend` (**+30s**, capped at 3 min/round) and `POST /api/rooms/[code]/kick` (removes player + their submissions/votes, re-freezes `input_total`, aborts to LOBBY if <2 players).
+- `vote` now **auto-advances VOTE→SCORE when every player has voted** (was timer-only), and `submit` already auto-advanced INPUT→REVEAL when all are in.
+
+*Phone polish*
+- **Draw mode**: `components/DrawPad.tsx` (7 colors, 3 brush sizes, undo, clear, PNG→JPEG fallback over 500KB, submits ONCE — no stroke streaming). Host picks Write/Draw in the lobby; snapshot's `game_type` switches the phone UI, and drawings render on host REVEAL/VOTE/SCORE + phone vote buttons.
+- **Edit answer** until REVEAL (draft kept instead of cleared on submit, cleared when the round ends), prompt hint as the textarea placeholder, `You're 2nd of 4 · R1 +400` personal rank + history, score list numbered, join errors translated (room full / family-friendly / too short).
+
+**Schema:** `supabase/schema.sql` gains `prompt_hint`, `used_prompts`, `input_total`, `host_token`, `round_history` + idempotent `alter table ... add column if not exists` block. Applied live to `saturday` via the Management API (all 5 statements 201, columns verified).
+
+**Why:** the audit against Quiplash/Fibbage/Drawful found flat scoring (leader never loses), a 30-prompt pool that repeated within two games, a decorative-only vote clock, no troll/name guard, no host recovery controls, and drawing still unshipped. All fixes stay inside the AGENTS.md invariants: API-routes-only writes + `broadcastRoom`, engine-gated transitions, a single `ends_at` with local `useCountdown`, no per-stroke streaming, generic `submit`.
+
+**Verified:** `npm run typecheck` clean, `npm run build` green (host 6.9 / play 6.05 kB, 12 API routes). **59/59 live API checks** against `next start` (see `/tmp/opencode/audit_smoke.mjs`): host_token not leaked in GET + 403 on wrong token, profane/short/oversized-input 400s, dedupe names, `input_total` freeze, INPUT redaction of `image_url`, edit collapse to one submission, all-in auto-REVEAL, extend guards (400 in REVEAL, 200 in VOTE), VOTE redaction (tallies + scores), self-vote/double-vote 400, clean-sweep final scoring (`650` = 2×200 + 250 verified in both `scores` and `round_history`), auto VOTE→SCORE, no-repeat prompt across rounds, kick + kick-without-token 403, rematch reset keeping code/game_type/players. Pages `/`, `/preview`, `/host`, `/play` all 200; 120 text + 30 draw prompts counted unique. Smoke-test rooms deleted (33 → 27 rooms); no stray server left running.
+
+**Not done from the audit:** audience mode (late joiners vote at half weight), round history visible on the TV, prompt-pack picker in the lobby, per-phase music beds beyond VOTE (needs new audio), share-card export.
+
+**What's next:** human browser pass (draw mode on a real touchscreen: palm rejection + data URL size, one-at-a-time reveal pacing, ladder bars) → push → Vercel redeploy → phone-on-mobile-data test → audience mode if the living room wants it.

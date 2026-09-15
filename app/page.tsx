@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, type Variants } from "motion/react";
 import { getSessionId } from "@/lib/gameEngine";
+import { setHostToken } from "@/lib/hostToken";
 import { THEME, DISPLAY_FONT, IMAGES } from "@/lib/theme";
 import { Mascot } from "@/components/Mascot";
 
@@ -32,6 +33,9 @@ export default function Home() {
       const res = await fetch("/api/rooms", { method: "POST" });
       const room = await res.json();
       if (!res.ok) throw new Error(room.error);
+      // Keep the host token on this device so only the TV can drive the game
+      // (start/next/kick/extend) once the round begins.
+      if (room.host_token) setHostToken(room.code, room.host_token);
       // Creator opens the TV host view; players scan/join via /play/[code].
       router.push(`/host/${room.code}`);
     } finally {
