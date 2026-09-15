@@ -9,8 +9,17 @@ import {
 
 import { HumanoidParade } from "./HumanoidWalker";
 import type { Phase } from "./HumanoidWalker";
+import { TimerIcon, MaskIcon, BallotIcon, TrophyIcon, MedalIcon } from "@/components/icons";
 
 const PHASES: Phase[] = ["LOBBY", "INPUT", "REVEAL", "VOTE", "SCORE"];
+
+const PHASE_ICON: Record<Phase, React.ReactNode> = {
+  LOBBY: null,
+  INPUT: null,
+  REVEAL: <MaskIcon size={22} />,
+  VOTE: <BallotIcon size={22} />,
+  SCORE: <TrophyIcon size={22} />,
+};
 
 // ---------- shared variants ----------
 const phaseVariants: Variants = {
@@ -126,7 +135,9 @@ export default function PreviewPage() {
                 whileTap={{ scale: 0.95 }}
                 style={phase === ph ? activeChip : chip}
               >
-                {ph}
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  {PHASE_ICON[ph]} {ph}
+                </span>
               </motion.button>
             ))}
           </div>
@@ -135,11 +146,11 @@ export default function PreviewPage() {
               <motion.div key={phase} variants={phaseVariants} initial="hidden" animate="show" exit="exit" style={stageCard}>
                 <div style={{ fontSize: 13, opacity: 0.6 }}>PHASE: {phase}</div>
                 <div style={{ fontSize: 34, fontWeight: 800 }}>
-                  {phase === "LOBBY" && "👋 Waiting for family…"}
-                  {phase === "INPUT" && "✍️ Invent a family holiday…"}
-                  {phase === "REVEAL" && "🎭 Drumroll — answers up!"}
-                  {phase === "VOTE" && "🗳️ Vote on phones now!"}
-                  {phase === "SCORE" && "🏆 Scores + winner march!"}
+                  {phase === "LOBBY" && "Waiting for family…"}
+                  {phase === "INPUT" && "Invent a family holiday…"}
+                  {phase === "REVEAL" && "Drumroll — answers up!"}
+                  {phase === "VOTE" && "Vote on phones now!"}
+                  {phase === "SCORE" && "Scores + winner march!"}
                 </div>
               </motion.div>
             </AnimatePresence>
@@ -211,13 +222,13 @@ export default function PreviewPage() {
               whileTap={{ scale: 0.96 }}
               style={primaryBtn}
             >
-              🎉 Random win + confetti
+              Random win + confetti
             </motion.button>
           </div>
           <div style={podium}>
             {sortedScores.map((e, i) => (
               <motion.div key={e.name} layout transition={{ type: "spring", stiffness: 200, damping: 26 }} style={{ ...podiumBar, height: 60 + (sortedScores.length - i) * 28 }}>
-                <span style={{ fontSize: 28 }}>{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : "🙂"}</span>
+                <MedalIcon rank={i + 1} size={30} />
                 <strong>{e.name}</strong>
                 <span>{e.pts}</span>
               </motion.div>
@@ -247,7 +258,9 @@ export default function PreviewPage() {
                 transition={{ duration: 0.5, repeat: urgent ? Infinity : 0, repeatDelay: 1 }}
                 style={{ ...timer, background: urgent ? "#dc2626" : "#1f2937" }}
               >
-                ⏱ {seconds}s {urgent ? "— HURRY!" : ""}
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <TimerIcon size={24} /> {seconds}s {urgent ? "— HURRY!" : ""}
+                </span>
               </motion.div>
               <input type="range" min={1} max={30} value={seconds} onChange={(e) => setSeconds(Number(e.target.value))} style={{ width: "100%" }} />
             </div>
@@ -259,7 +272,7 @@ export default function PreviewPage() {
                 animate={{ backgroundColor: submitted ? "#059669" : "#7c3aed" }}
                 style={primaryBtn}
               >
-                {submitted ? "Submitted ✓" : "Submit answer"}
+                {submitted ? "Submitted" : "Submit answer"}
               </motion.button>
               <AnimatePresence>
                 {submitted && (
@@ -278,17 +291,17 @@ export default function PreviewPage() {
           <h2 style={h2}>7 · Where Motion stops (the honest limits)</h2>
           <div style={limitsGrid}>
             <div style={limitCard}>
-              <strong>✅ Buttery (transform/opacity)</strong>
+              <strong>Buttery (transform/opacity)</strong>
               <motion.div animate={{ x: [0, 200, 0], rotate: [0, 180, 360] }} transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }} style={limitBox} />
               <p style={p}>x, y, scale, rotate, opacity run on GPU.</p>
             </div>
             <div style={limitCard}>
-              <strong>⚠️ Janky (layout props)</strong>
+              <strong>Janky (layout props)</strong>
               <motion.div animate={{ width: [80, 240, 80] }} transition={{ duration: 3, repeat: Infinity }} style={{ ...limitBox, background: "#dc2626" }} />
               <p style={p}>width/height/top trigger reflow — avoid per-frame.</p>
             </div>
             <div style={limitCard}>
-              <strong>🛑 Not Motion&apos;s job</strong>
+              <strong>Not Motion&apos;s job</strong>
               <p style={p}>Per-pixel particles (&gt;200), skeletal rigs, canvas drawing strokes per-mousemove (banned by AGENTS.md), server-tick animation. Use canvas/WebGL there.</p>
             </div>
           </div>

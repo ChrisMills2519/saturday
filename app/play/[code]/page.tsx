@@ -5,8 +5,17 @@ import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { getSessionId } from "@/lib/gameEngine";
 import { clearDraft, loadDraft, loadJoin, loadVoted, saveDraft, saveJoin, saveVoted } from "@/lib/persistence";
 import { useRoom, useCountdown, type RoomSnapshot } from "@/lib/realtime";
+import { TimerIcon, CheckIcon, EyeIcon, TrophyIcon } from "@/components/icons";
 
 const MAX_LEN = 140;
+
+const PHASE_STATUS: Record<string, string> = {
+  LOBBY: "Game starting soon",
+  INPUT: "Your turn — write fast",
+  REVEAL: "Showtime on the TV",
+  VOTE: "Pick your favorite",
+  SCORE: "Results are in",
+};
 
 export default function PlayPage({ params }: { params: { code: string } }) {
   return (
@@ -115,7 +124,7 @@ function PlayInner({ code }: { code: string }) {
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      setVoteErr(data.error === "already voted" ? "Vote locked in already ✓" : `Couldn't vote: ${data.error ?? res.status}`);
+      setVoteErr(data.error === "already voted" ? "Vote already locked in" : `Couldn't vote: ${data.error ?? res.status}`);
       return;
     }
     saveVoted(code, round, player_session);
@@ -149,12 +158,21 @@ function PlayInner({ code }: { code: string }) {
         <motion.p
           animate={urgent && !reduce ? { x: [0, -6, 6, -4, 4, 0], scale: [1, 1.08, 1] } : { x: 0, scale: 1 }}
           transition={{ duration: 0.5, repeat: urgent && !reduce ? Infinity : 0, repeatDelay: 1 }}
-          style={{ fontSize: 22, fontWeight: 800, color: urgent ? "#f87171" : undefined }}
+          style={{ fontSize: 22, fontWeight: 800, color: urgent ? "#f87171" : undefined, display: "flex", alignItems: "center", gap: 8 }}
         >
-          ⏱ {left}s {urgent ? "— HURRY!" : ""}
+          <TimerIcon size={24} /> {left}s {urgent ? "— HURRY!" : ""}
         </motion.p>
       )}
-      <p style={{ opacity: 0.6 }}>Phase: {room.phase}</p>
+      <p style={{ opacity: 0.6 }}>{PHASE_STATUS[room.phase] ?? room.phase}</p>
+
+      {room.phase === "LOBBY" && (
+        <div style={doneCard}>
+          <p style={{ fontSize: 22, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <EyeIcon size={24} /> You&apos;re in!
+          </p>
+          <p style={{ opacity: 0.7 }}>Look at the TV — the round starts soon.</p>
+        </div>
+      )}
 
       {room.phase === "INPUT" && !mySub && (
         <>
@@ -188,16 +206,20 @@ function PlayInner({ code }: { code: string }) {
               <motion.path d="M24 37l8 8 16-16" fill="none" stroke="#34d399" strokeWidth={6} strokeLinecap="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.4, delay: 0.3 }} />
             </motion.svg>
           </AnimatePresence>
-          <p style={{ fontSize: 20, fontWeight: 700 }}>You&apos;re in! Relax 👀</p>
-          <p style={{ opacity: 0.7 }}>Look at the TV — {room.submissions.length}/{Math.max(room.players.length, 1)} submitted.</p>
+          <p style={{ fontSize: 20, fontWeight: 700 }}>You&apos;re in! Relax</p>
+          <p style={{ opacity: 0.7, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <EyeIcon size={22} /> Look at the TV — {room.submissions.length}/{Math.max(room.players.length, 1)} submitted.
+          </p>
         </div>
       )}
 
       {room.phase === "REVEAL" && (
         <div style={doneCard}>
-          <p style={{ fontSize: 24, fontWeight: 800 }}>Look up! 👀</p>
+          <p style={{ fontSize: 24, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <EyeIcon size={26} /> Look up!
+          </p>
           <p style={{ opacity: 0.7 }}>Answers are on the TV. Voting opens next.</p>
-          {mySub && <p style={{ opacity: 0.7 }}>Your answer: “{mySub.text_content ?? "🎨"}”</p>}
+          {mySub && <p style={{ opacity: 0.7 }}>Your answer: “{mySub.text_content ?? "(drawing)"}”</p>}
         </div>
       )}
 
@@ -205,18 +227,22 @@ function PlayInner({ code }: { code: string }) {
         <>
           {voted ? (
             <div style={doneCard}>
-              <p style={{ fontSize: 20, fontWeight: 700 }}>Voted ✓ for {nameOf(room, voted)}</p>
+              <p style={{ fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                <CheckIcon size={22} animated={!reduce} /> Voted for {nameOf(room, voted)}
+              </p>
               <p style={{ opacity: 0.7 }}>Locked in — no take-backs. Results on TV soon.</p>
             </div>
           ) : votable.length === 0 ? (
             <div style={doneCard}>
-              <p style={{ fontSize: 20, fontWeight: 700 }}>Nothing to vote on yet 👀</p>
+              <p style={{ fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                <EyeIcon size={22} /> Nothing to vote on yet
+              </p>
               <p style={{ opacity: 0.7 }}>
                 {room.submissions.length <= 1
                   ? "Only your answer is in — you can't vote for yourself. Grab another player, or get the host to skip to scores."
                   : "Everyone else's answers will appear here."}
               </p>
-              {mySub && <p style={{ opacity: 0.7 }}>Your answer: “{mySub.text_content ?? "🎨"}”</p>}
+              {mySub && <p style={{ opacity: 0.7 }}>Your answer: “{mySub.text_content ?? "(drawing)"}”</p>}
             </div>
           ) : (
             votable.map((s) => (
@@ -232,8 +258,9 @@ function PlayInner({ code }: { code: string }) {
       {room.phase === "SCORE" && (
         <>
           {winner && (
-            <p style={{ fontSize: 22, fontWeight: 800 }}>
-              {winner.sessionId === sid ? "You win! 🎉" : `${winner.name} wins! 🎉`}
+            <p style={{ fontSize: 22, fontWeight: 800, display: "flex", alignItems: "center", gap: 8 }}>
+              <TrophyIcon size={26} />
+              {winner.sessionId === sid ? "You win!" : `${winner.name} wins!`}
               {myScore ? ` — you have ${myScore.pts}` : ""}
             </p>
           )}

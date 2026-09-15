@@ -44,3 +44,22 @@ create table if not exists votes (
   created_at timestamptz default now(),
   unique(room_code, round, voter_session)
 );
+
+-- API role grants. Tables created in the SQL Editor are owned by postgres,
+-- but PostgREST serves the anon / authenticated / service_role roles, so a
+-- fresh table answers 403 "permission denied" until granted (hit on `votes`
+-- 2026-09-15: rooms/players/submissions worked, votes 403'd). service_role
+-- bypasses RLS, so grants alone fix the API routes; anon stays read-only
+-- (all writes go through API routes with service_role). Safe to re-run.
+grant select, insert, update, delete on public.rooms to service_role;
+grant select, insert, update, delete on public.players to service_role;
+grant select, insert, update, delete on public.submissions to service_role;
+grant select, insert, update, delete on public.votes to service_role;
+
+-- Identity columns allocate from sequences; inserts fail without USAGE.
+grant usage, select on all sequences in schema public to service_role;
+
+grant select on public.rooms to anon, authenticated;
+grant select on public.players to anon, authenticated;
+grant select on public.submissions to anon, authenticated;
+grant select on public.votes to anon, authenticated;

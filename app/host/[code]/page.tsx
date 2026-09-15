@@ -2,6 +2,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { useRoom, useCountdown, type RoomSnapshot } from "@/lib/realtime";
+import {
+  TimerIcon,
+  MaskIcon,
+  BallotIcon,
+  TrophyIcon,
+  CheckIcon,
+  DrawIcon,
+  LockIcon,
+  MedalIcon,
+} from "@/components/icons";
+import { PlayerParade } from "@/components/PlayerParade";
+import type { Phase } from "@/app/preview/HumanoidWalker";
+
+const PHASE_STATUS: Record<Phase, string> = {
+  LOBBY: "Waiting for players",
+  INPUT: "Answers coming in",
+  REVEAL: "Showtime — read them loud",
+  VOTE: "Voting open",
+  SCORE: "Results",
+};
 
 const grid = {
   hidden: {},
@@ -60,6 +80,14 @@ function nameOf(room: RoomSnapshot, sessionId: string): string {
   return room.players.find((p) => p.session_id === sessionId)?.name ?? sessionId.slice(0, 4);
 }
 
+function BtnLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 10, justifyContent: "center" }}>
+      {children}
+    </span>
+  );
+}
+
 export default function HostPage({ params }: { params: { code: string } }) {
   const { code } = params;
   const [initial, setInitial] = useState<RoomSnapshot | null>(null);
@@ -113,6 +141,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
 
   if (!room) return <main style={wrap}><h1>{code}</h1><p>Loading room…</p></main>;
 
+  const phase = room.phase as Phase;
   const submitted = room.submissions.length;
   const total = Math.max(room.players.length, 1);
   const totalVotes = room.submissions.reduce((n, s) => n + (s.votes ?? 0), 0);
@@ -134,17 +163,21 @@ export default function HostPage({ params }: { params: { code: string } }) {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={qr} alt="Join QR" width={180} height={180} style={{ background: "#fff", padding: 8, borderRadius: 12 }} />
           <div style={{ fontSize: 28 }}>
-            <div>Phase: {room.phase}</div>
+            <div style={{ opacity: 0.85 }}>
+              Round {Math.max(room.current_round, 1)} · {PHASE_STATUS[phase] ?? phase}
+            </div>
             {left !== null && (
               <motion.div
                 animate={urgent && !reduce ? { scale: [1, 1.08, 1] } : { scale: 1 }}
                 transition={{ duration: 0.5, repeat: urgent && !reduce ? Infinity : 0, repeatDelay: 1 }}
-                style={{ color: urgent ? "#f87171" : undefined, fontWeight: 800 }}
+                style={{ color: urgent ? "#f87171" : undefined, fontWeight: 800, display: "flex", alignItems: "center", gap: 10 }}
               >
-                ⏱ {left}s
+                <TimerIcon size={30} /> {left}s
               </motion.div>
             )}
-            <div>Players: {room.players.length}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              Players: {room.players.length}
+            </div>
           </div>
         </header>
       )}
@@ -154,6 +187,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
           {room.phase === "LOBBY" && (
             <>
               <h2 style={h2}>Lobby</h2>
+              <PlayerParade phase="LOBBY" players={room.players} disabled={!!reduce} />
               <motion.ul variants={grid} initial="hidden" animate="show" style={{ listStyle: "none", padding: 0 }}>
                 {room.players.map((p) => (
                   <motion.li key={p.session_id} variants={cardV} style={li}>{p.name}</motion.li>
@@ -179,14 +213,22 @@ export default function HostPage({ params }: { params: { code: string } }) {
                   return (
                     <motion.div key={p.session_id} variants={cardV} style={{ ...card, opacity: done ? 1 : 0.5 }}>
                       <div style={{ fontSize: 22, fontWeight: 700 }}>{p.name}</div>
-                      <small style={{ opacity: 0.7 }}>{done ? "locked in ✓" : "typing…"}</small>
+                      <small style={{ opacity: 0.7, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        {done ? (
+                          <>
+                            locked in <CheckIcon size={16} />
+                          </>
+                        ) : (
+                          "typing…"
+                        )}
+                      </small>
                     </motion.div>
                   );
                 })}
               </motion.div>
               <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
                 <motion.button whileTap={{ scale: 0.96 }} style={btn} onClick={() => post(`/api/rooms/${code}/next`, { to: "REVEAL" })}>
-                  Reveal 🎭
+                  <BtnLabel>Reveal <MaskIcon size={24} /></BtnLabel>
                 </motion.button>
               </div>
             </>
@@ -194,19 +236,27 @@ export default function HostPage({ params }: { params: { code: string } }) {
 
           {room.phase === "REVEAL" && (
             <>
-              <h2 style={h2}>🎭 {room.prompt}</h2>
+              <h2 style={{ ...h2, display: "flex", alignItems: "center", gap: 12 }}>
+                <MaskIcon size={40} /> {room.prompt}
+              </h2>
               <p style={{ opacity: 0.7 }}>Read them aloud. Drumroll…</p>
               <motion.div variants={grid} initial="hidden" animate="show" style={gridStyle}>
                 {room.submissions.map((s) => (
                   <motion.div key={s.player_session} variants={cardV} whileHover={reduce ? undefined : { scale: 1.04, rotate: -1 }} style={card}>
-                    <p style={{ fontSize: 24 }}>{s.image_url ? "🎨 (drawing)" : s.text_content}</p>
+                    {s.image_url ? (
+                      <p style={{ fontSize: 24, display: "flex", alignItems: "center", gap: 10 }}>
+                        <DrawIcon size={26} /> (drawing)
+                      </p>
+                    ) : (
+                      <p style={{ fontSize: 24 }}>{s.text_content}</p>
+                    )}
                     <small style={{ opacity: 0.6 }}>anonymous… for now</small>
                   </motion.div>
                 ))}
               </motion.div>
               <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
                 <motion.button whileTap={{ scale: 0.96 }} style={btn} onClick={() => post(`/api/rooms/${code}/next`, { to: "VOTE" })}>
-                  Start voting 🗳️
+                  <BtnLabel>Start voting <BallotIcon size={24} /></BtnLabel>
                 </motion.button>
               </div>
             </>
@@ -214,7 +264,9 @@ export default function HostPage({ params }: { params: { code: string } }) {
 
           {room.phase === "VOTE" && (
             <>
-              <h2 style={h2}>🗳️ Vote on your phones!</h2>
+              <h2 style={{ ...h2, display: "flex", alignItems: "center", gap: 12 }}>
+                <BallotIcon size={40} /> Vote on your phones!
+              </h2>
               <p style={{ fontSize: 22, opacity: 0.8 }}>{totalVotes}/{total} voted — tallies hidden until scores…</p>
               {room.submissions.length <= 1 && (
                 <p style={{ fontSize: 18, opacity: 0.7 }}>Need 2+ answers to vote (solo players can&apos;t vote for themselves) — invite more phones or skip to scores.</p>
@@ -222,14 +274,22 @@ export default function HostPage({ params }: { params: { code: string } }) {
               <motion.div variants={grid} initial="hidden" animate="show" style={gridStyle}>
                 {room.submissions.map((s) => (
                   <motion.div key={s.player_session} variants={cardV} style={card}>
-                    <p style={{ fontSize: 24 }}>{s.image_url ? "🎨 (drawing)" : s.text_content}</p>
-                    <small style={{ opacity: 0.6 }}>🔒 blind vote</small>
+                    {s.image_url ? (
+                      <p style={{ fontSize: 24, display: "flex", alignItems: "center", gap: 10 }}>
+                        <DrawIcon size={26} /> (drawing)
+                      </p>
+                    ) : (
+                      <p style={{ fontSize: 24 }}>{s.text_content}</p>
+                    )}
+                    <small style={{ opacity: 0.6, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <LockIcon size={16} /> blind vote
+                    </small>
                   </motion.div>
                 ))}
               </motion.div>
               <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
                 <motion.button whileTap={{ scale: 0.96 }} style={btn} onClick={() => post(`/api/rooms/${code}/next`, { to: "SCORE" })}>
-                  Show scores 🏆
+                  <BtnLabel>Show scores <TrophyIcon size={24} /></BtnLabel>
                 </motion.button>
               </div>
             </>
@@ -237,7 +297,10 @@ export default function HostPage({ params }: { params: { code: string } }) {
 
           {room.phase === "SCORE" && (
             <>
-              <h2 style={h2}>🏆 Scores</h2>
+              <h2 style={{ ...h2, display: "flex", alignItems: "center", gap: 12 }}>
+                <TrophyIcon size={40} /> Scores
+              </h2>
+              <PlayerParade phase="SCORE" players={room.players} disabled={!!reduce} height={180} />
               <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginTop: 16, minHeight: 220 }}>
                 {sortedScores.map((e, i) => (
                   <motion.div
@@ -246,7 +309,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
                     transition={{ type: "spring", stiffness: 200, damping: 26 }}
                     style={{ ...podiumBar, height: 60 + (sortedScores.length - i) * 28 }}
                   >
-                    <span style={{ fontSize: 28 }}>{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : "🙂"}</span>
+                    <MedalIcon rank={i + 1} size={30} />
                     <strong>{e.name}</strong>
                     <AnimatePresence mode="popLayout">
                       <motion.span
@@ -263,7 +326,11 @@ export default function HostPage({ params }: { params: { code: string } }) {
                 ))}
                 {sortedScores.length === 0 && <p style={{ opacity: 0.6 }}>No votes yet — play a round!</p>}
               </div>
-              {sortedScores[0] && <p style={{ fontSize: 24 }}>Winner: {sortedScores[0].name}! 🎉</p>}
+              {sortedScores[0] && (
+                <p style={{ fontSize: 24, display: "flex", alignItems: "center", gap: 10 }}>
+                  <TrophyIcon size={28} /> Winner: {sortedScores[0].name}!
+                </p>
+              )}
               <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} style={btn} onClick={() => post(`/api/rooms/${code}/next`, { to: "INPUT" })}>
                 Next round →
               </motion.button>

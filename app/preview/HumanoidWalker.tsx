@@ -224,7 +224,7 @@ export function HumanoidWalker({ spec, mood }: { spec: AvatarSpec; mood: WalkerM
 }
 
 export function HumanoidParade({ phase, disabled }: { phase: Phase; disabled: boolean }) {
-  if (disabled) return <div style={fallback}>Reduced-motion on — walkers parked 🅿️</div>;
+  if (disabled) return <div style={fallback}>Reduced-motion on — walkers parked</div>;
   const mood = PHASE_TO_MOOD[phase];
   const moodLabel: Record<WalkerMood, string> = {
     idle: "idle sway",

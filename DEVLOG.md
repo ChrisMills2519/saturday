@@ -96,3 +96,13 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 **What changed:** solo test showed prompt + `Phase: VOTE` with nothing to tap — correct behavior (no self-vote) but a blank screen. Phone VOTE now shows a `Nothing to vote on yet 👀` card (explains the no-self-vote rule, echoes your answer) when no votable answers exist; host VOTE shows a `Need 2+ answers` nudge when ≤1 submission.
 
 **Verified:** `npm run typecheck` clean, `npm run build` green.
+
+## 2026-09-15 — SVG icons + avatar parade (emoji-free UI)
+
+**What changed:** emoji-as-iconography replaced with a code-only stroke set (`components/icons.tsx`: Timer/Mask/Ballot/Trophy/Check/Eye/Draw/Lock/MedalIcon, 24px viewBox, currentColor) across host + play + preview; animated CheckIcon reuses the `pathLength` pattern. Player-driven `PlayerParade` (`components/PlayerParade.tsx`) promotes the walker rig from `/preview` to the TV: real roster names/colors in LOBBY (idle) and SCORE (march), null under reduced-motion/empty. Debug `Phase:` labels gone (friendly `Round N · status` on TV, per-phase status on phone); phone gains a LOBBY "You're in!" card. Preview demo-answer emoji kept (user-content simulation). No engine/API/schema changes.
+
+**Why:** Jackbox uses illustrated characters, never emoji; TMP is the visual benchmark (themed scene, display type, mascot cast). This is the iconography + cast slice.
+
+**Verified:** `typecheck` clean, `build` green (host 4.31 / play 4.64 kB); emoji grep over host/play/components = 0; headless API playtest PASS (3P full loop, all 400 guards); verification subagent independently PASSed edge cases (solo self-vote 400, reconnect dedupe, resubmit-edit collapse, round-2 prompt rotation, SCORE→LOBBY) + page smokes (/, /preview, /host, /play all 200). Screenshots blocked in-container (no Chromium libs, no root) — manual capture matrix recorded.
+
+**What's next:** run `supabase/schema.sql` (creates `votes` table + service_role grants — double-vote currently 200-fallback, becomes 400-guarded) → push → browser screenshot pass vs TMP refs → Slice 1 sound + announcer copy.
