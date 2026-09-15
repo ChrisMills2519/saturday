@@ -3,6 +3,8 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { getSessionId } from "@/lib/gameEngine";
+import { THEME, DISPLAY_FONT, IMAGES, stageBg, answerCard, phoneBtn } from "@/lib/theme";
+import { Mascot } from "@/components/Mascot";
 import { clearDraft, loadDraft, loadJoin, loadVoted, saveDraft, saveJoin, saveVoted } from "@/lib/persistence";
 import { useRoom, useCountdown, type RoomSnapshot } from "@/lib/realtime";
 import { TimerIcon, CheckIcon, EyeIcon, TrophyIcon } from "@/components/icons";
@@ -173,15 +175,17 @@ function PlayInner({ code }: { code: string }) {
 
   if (!joined) {
     return (
-      <main style={wrap}>
-        <h1>Join {code}</h1>
+      <main style={{ ...stageBg, ...wrap }}>
+        <p style={codePill}>JOIN {code}</p>
+        <h1 style={phoneTitle}>Who are you?</h1>
+        <Mascot src={IMAGES.lobby} alt="Host" size={140} />
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" style={input} />
         <motion.button whileTap={{ scale: 0.97 }} onClick={join} style={btn}>Join</motion.button>
       </main>
     );
   }
 
-  if (!room) return <main style={wrap}><p>Loading…</p></main>;
+  if (!room) return <main style={{ ...stageBg, ...wrap }}><p>Loading…</p></main>;
 
   const mySub = room.submissions.find((s) => s.player_session === sid);
   const votable = room.submissions.filter((s) => s.player_session !== sid);
@@ -192,8 +196,9 @@ function PlayInner({ code }: { code: string }) {
   const winner = sortedScores[0];
 
   return (
-    <main style={wrap}>
-      <h1 style={{ fontSize: 28 }}>{room.prompt ?? `Room ${code} — waiting…`}</h1>
+    <main style={{ ...stageBg, ...wrap }}>
+      <p style={codePill}>{code} · {PHASE_STATUS[room.phase] ?? room.phase}</p>
+      <h1 style={promptCard}>{room.prompt ?? `Room ${code} — waiting…`}</h1>
       {left !== null && (
         <motion.p
           animate={urgent && !reduce ? { x: [0, -6, 6, -4, 4, 0], scale: [1, 1.08, 1] } : { x: 0, scale: 1 }}
@@ -203,7 +208,7 @@ function PlayInner({ code }: { code: string }) {
           <TimerIcon size={24} /> {left}s {urgent ? "— HURRY!" : ""}
         </motion.p>
       )}
-      <p style={{ opacity: 0.6 }}>{PHASE_STATUS[room.phase] ?? room.phase}</p>
+      <p style={{ opacity: 0.75, fontWeight: 700 }}>{PHASE_STATUS[room.phase] ?? room.phase}</p>
 
       {room.phase === "LOBBY" && (
         <div style={doneCard}>
@@ -316,9 +321,12 @@ function PlayInner({ code }: { code: string }) {
   );
 }
 
-const wrap: React.CSSProperties = { padding: 20, maxWidth: 520, margin: "0 auto" };
-const input: React.CSSProperties = { display: "block", width: "100%", boxSizing: "border-box", padding: 14, fontSize: 18, borderRadius: 10, margin: "12px 0" };
-const btn: React.CSSProperties = { display: "block", width: "100%", padding: 16, fontSize: 20, borderRadius: 10, background: "#7c3aed", color: "#fff", border: "none", cursor: "pointer" };
-const voteBtn: React.CSSProperties = { ...btn, background: "#1f2937", margin: "8px 0" };
-const doneCard: React.CSSProperties = { background: "rgba(0,0,0,0.3)", padding: 18, borderRadius: 12, border: "1px solid rgba(255,255,255,0.1)", textAlign: "center" };
-const scoreLi: React.CSSProperties = { fontSize: 20, background: "#1f2937", color: "#fff", padding: "10px 14px", borderRadius: 10, margin: "6px 0" };
+const wrap: React.CSSProperties = { padding: 20, maxWidth: 520, margin: "0 auto", minHeight: "100dvh", color: "#fff" };
+const codePill: React.CSSProperties = { display: "inline-block", fontFamily: DISPLAY_FONT, fontSize: 15, letterSpacing: 2, background: THEME.pink, color: "#fff", border: "3px solid #111", borderRadius: 999, padding: "6px 14px", boxShadow: "3px 3px 0 #111", margin: "0 0 10px" };
+const phoneTitle: React.CSSProperties = { fontFamily: DISPLAY_FONT, fontSize: 40, color: THEME.yellow, margin: "8px 0", textShadow: "-2px -2px 0 #111, 2px -2px 0 #111, -2px 2px 0 #111, 2px 2px 0 #111" };
+const promptCard: React.CSSProperties = { ...answerCard, fontSize: 24, padding: "16px 18px", margin: "8px 0" };
+const input: React.CSSProperties = { display: "block", width: "100%", boxSizing: "border-box", padding: 16, fontSize: 20, fontWeight: 700, borderRadius: 14, margin: "12px 0", border: "3px solid #111", background: "#fff", color: "#111", outline: "none", minHeight: 56 };
+const btn: React.CSSProperties = { ...phoneBtn, padding: 16, fontSize: 22, margin: "8px 0" };
+const voteBtn: React.CSSProperties = { ...answerCard, display: "block", width: "100%", boxSizing: "border-box", padding: 16, fontSize: 20, fontWeight: 800, margin: "8px 0", cursor: "pointer", textAlign: "left" };
+const doneCard: React.CSSProperties = { ...answerCard, padding: 18, textAlign: "center" };
+const scoreLi: React.CSSProperties = { ...answerCard, fontSize: 20, fontWeight: 800, padding: "10px 14px", margin: "6px 0", listStyle: "none" };

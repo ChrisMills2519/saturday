@@ -28,5 +28,17 @@ Jackbox-style family party game. Laptop browser = TV host screen (`/host/[code]`
 - Never add polling faster than the 3s broadcast-miss fallback in `useRoom`, never stream canvas strokes per-mousemove (drawing submits once).
 - Never create docs files proactively beyond what the user asked; update `DEVLOG.md` (append entry) when behavior changes.
 
+## Asset fetching permission (standing)
+- Standing permission to download internet assets whenever needed for the game — no need to ask per-file.
+- Prefer CC0 (OpenGameArt CC0 badge, Kenney.nl). Pixabay Content License OK as manual-drop only, never scraped. No NC/ND, no attribution-required packs vendored without noting it.
+- Static assets only in `public/images/`, `public/audio/`, `public/fonts/` — never executables, scripts, or HTML. Verify each file: `file <path>` + size sanity (<1MB per SFX/image, <1.5MB per music loop), then `npm run typecheck` + `npm run build`.
+- Record provenance in `public/{audio,images}/README.md` (source URL, license, edits like mono/-14 LUFS/fades) and append a `DEVLOG.md` entry. Never commit secrets alongside assets.
+
+### Audio source list (music + SFX)
+- Tier 1 CC0, scriptable: OpenGameArt (per-page CC0 badge check — site also hosts CC-BY), Kenney.nl packs (direct zips), FreePD GitHub mirror (`0lhi/FreePD`), Wikimedia Commons (CC0/PD filter, MediaWiki API), Freesound CC0 previews (free API key; full WAV needs login), Chiptone/jsfxr generators (CC0 output, fully offline).
+- Tier 2 CC0, manual download: John Bartmann Albums One & Two only (FMA login-walled; rest of his catalog is CC-BY, do not touch).
+- Tier 3 royalty-free no-attribution, MANUAL-DROP ONLY (never scraped): Pixabay Music/SFX, Coverr (no signup, static links), Mixkit SFX only (its music bans game use), Sonniss GDC bundles (quality backup).
+- Reject: Mixkit music / Tunetank free / Purple Planet free (all exclude games), NCS (UGC-video only), Epidemic (paid), YouTube Audio Library (YouTube only), BBC RemArc (non-commercial), anything attribution-required (Bensound, Soundimage, Incompetech, ccMixter, Uppbeat-free, ZapSplat-free).
+
 ## Before finishing
 Run `npm run typecheck` + `npm run build`, smoke-test create→join→submit→vote mentally against the API, and append a `DEVLOG.md` entry (date, change, why, verification).

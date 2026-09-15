@@ -148,3 +148,14 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 **Verified:** `typecheck` clean, `build` green; 13/13 live API checks (seq strictly increasing, INPUT redacted but roster intact, REVEAL restores text, all vote guards 400, counts exact at every phase).
 
 **What's next:** game structure (3-round games, Start gating, per-round durations, rematch) → human browser/phones pass.
+
+## 2026-09-15 — Room auto-expire (TTL cleanup)
+
+**What changed:** finished games sat in Postgres forever (28 test rooms and counting — unbounded growth + 4-char code collision odds). Added auto-expire only, no UI change: new `lib/roomCleanup.ts` (`ROOM_TTL_HOURS = 24`, best-effort `purgeExpiredRooms()` that never throws), new `app/api/cleanup/route.ts` (GET for Vercel Cron + POST for manual curl, `force-dynamic`, guarded by `CRON_SECRET` bearer — open only when no secret configured, i.e. local dev), `vercel.json` daily cron `0 4 * * *` → `/api/cleanup`, `CRON_SECRET` in `.env.example`, opportunistic purge at the top of `POST /api/rooms` (covers cron misses), `rooms_created_at_idx` in `schema.sql` + applied live. Cascade FKs already handle children — deleting the room row removes players/submissions/votes.
+
+**Why:** user picked "auto-expire only" over host End-button / keep-forever. 24h covers rematch + late rejoin; games last <1h.
+
+**Verified:** `typecheck` clean, `build` green (new `/api/cleanup` route listed). Live: wrong/missing secret → 401, correct → `{"ok":true,"deleted":0}`; planted 25h-old `ZZT9` room + player + submission + vote → cleanup `deleted:1`, all 4 tables 0 for `ZZT9`, other 28 rooms untouched; `POST /api/rooms` still 200 with purge inline. Test residue removed (back to 28 rooms).
+
+**What's next:** set `CRON_SECRET` (`openssl rand -hex 32`) in Vercel env so the cron is authorized in prod → push → phone-on-mobile-data test.
+

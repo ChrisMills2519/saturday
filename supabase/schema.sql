@@ -48,6 +48,11 @@ create table if not exists votes (
   unique(room_code, round, voter_session)
 );
 
+-- TTL cleanup (auto-expire rooms older than 24h via /api/cleanup + Vercel
+-- Cron, plus opportunistic purge on room creation). Cascade on the FKs
+-- below means deleting the room row removes players/submissions/votes.
+create index if not exists rooms_created_at_idx on public.rooms (created_at);
+
 -- API role grants. Tables created in the SQL Editor are owned by postgres,
 -- but PostgREST serves the anon / authenticated / service_role roles, so a
 -- fresh table answers 403 "permission denied" until granted (hit on `votes`

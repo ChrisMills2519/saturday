@@ -3,6 +3,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, type Variants } from "motion/react";
 import { getSessionId } from "@/lib/gameEngine";
+import { THEME, DISPLAY_FONT, IMAGES } from "@/lib/theme";
+import { Mascot } from "@/components/Mascot";
 
 const container: Variants = {
   hidden: {},
@@ -63,12 +65,13 @@ export default function Home() {
     >
       <div style={card}>
         <motion.div variants={item} style={{ textAlign: "center" }}>
+          <Mascot src={IMAGES.lobby} alt="Saturday host" size={150} />
           <motion.h1
             animate={{ y: [0, -4, 0, 4, 0] }}
             transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
             style={title}
           >
-            Saturday Bones
+            SATURDAY
           </motion.h1>
           <p style={subtitle}>
             Laptop = TV host screen. Phones = controllers. No app install.
@@ -134,9 +137,8 @@ const page: React.CSSProperties = {
   justifyContent: "center",
   padding: 20,
   boxSizing: "border-box",
-  // slate-950 (#020617) -> indigo-950 (#1e1b4b), subtle radial lift
   background:
-    "radial-gradient(ellipse 80% 60% at 50% 20%, rgba(99,102,241,0.18), transparent 70%), linear-gradient(160deg, #020617 0%, #0b0a2a 55%, #1e1b4b 100%)",
+    "radial-gradient(ellipse 80% 60% at 50% 20%, rgba(255,46,154,0.25), transparent 70%), linear-gradient(160deg, #0d0618 0%, #1a0b2e 55%, #2a1458 100%)",
 };
 
 const card: React.CSSProperties = {
@@ -145,26 +147,30 @@ const card: React.CSSProperties = {
   boxSizing: "border-box",
   padding: "clamp(24px, 5vw, 40px)",
   borderRadius: 20,
-  background: "rgba(255,255,255,0.06)",
-  border: "1px solid rgba(255,255,255,0.12)",
-  boxShadow: "0 24px 64px rgba(0,0,0,0.45)",
-  backdropFilter: "blur(8px)",
+  background: "rgba(0,0,0,0.4)",
+  border: "3px solid #111",
+  boxShadow: "8px 8px 0 #111",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
 };
 
 const title: React.CSSProperties = {
   margin: 0,
-  fontSize: "clamp(2.5rem, 8vw, 3.5rem)",
-  fontWeight: 600,
-  letterSpacing: "-0.02em",
-  lineHeight: 1.05,
-  color: "#fff",
+  fontFamily: DISPLAY_FONT,
+  fontSize: "clamp(3rem, 10vw, 4.5rem)",
+  letterSpacing: "0.02em",
+  lineHeight: 1,
+  color: THEME.yellow,
+  textShadow: "-3px -3px 0 #111, 3px -3px 0 #111, -3px 3px 0 #111, 3px 3px 0 #111, 0 6px 0 rgba(0,0,0,0.45)",
 };
 
 const subtitle: React.CSSProperties = {
   margin: "12px 0 0",
-  fontSize: 16,
+  fontSize: 17,
+  fontWeight: 700,
   lineHeight: 1.5,
-  color: "rgba(255,255,255,0.7)",
+  color: "#fff",
 };
 
 const primaryBtn: React.CSSProperties = {
@@ -172,13 +178,14 @@ const primaryBtn: React.CSSProperties = {
   width: "100%",
   boxSizing: "border-box",
   padding: 16,
-  fontSize: 20,
-  fontWeight: 600,
+  fontSize: 22,
+  fontFamily: DISPLAY_FONT,
   margin: "24px 0 0",
-  borderRadius: 12,
-  background: "#7c3aed",
-  color: "#fff",
-  border: "none",
+  borderRadius: 14,
+  background: THEME.yellow,
+  color: "#111",
+  border: "3px solid #111",
+  boxShadow: "5px 5px 0 #111",
   cursor: "pointer",
   minHeight: 56,
 };
@@ -191,11 +198,10 @@ const joinSection: React.CSSProperties = {
 
 const joinHeading: React.CSSProperties = {
   margin: "0 0 12px",
-  fontSize: 20,
-  fontWeight: 600,
-  letterSpacing: "-0.01em",
+  fontSize: 22,
+  fontFamily: DISPLAY_FONT,
   textAlign: "center",
-  color: "#fff",
+  color: THEME.teal,
 };
 
 const input: React.CSSProperties = {
@@ -204,11 +210,12 @@ const input: React.CSSProperties = {
   boxSizing: "border-box",
   padding: 14,
   fontSize: 18,
+  fontWeight: 700,
   margin: "8px 0",
-  borderRadius: 10,
-  border: "1px solid rgba(255,255,255,0.2)",
-  background: "rgba(0,0,0,0.35)",
-  color: "#fff",
+  borderRadius: 12,
+  border: "3px solid #111",
+  background: "#fff",
+  color: "#111",
   outline: "none",
   minHeight: 52,
 };
@@ -218,13 +225,14 @@ const secondaryBtn: React.CSSProperties = {
   width: "100%",
   boxSizing: "border-box",
   padding: 16,
-  fontSize: 20,
-  fontWeight: 600,
+  fontSize: 22,
+  fontFamily: DISPLAY_FONT,
   margin: "8px 0 0",
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.12)",
-  color: "#fff",
-  border: "1px solid rgba(255,255,255,0.2)",
+  borderRadius: 14,
+  background: "#fff",
+  color: "#111",
+  border: "3px solid #111",
+  boxShadow: "5px 5px 0 #111",
   cursor: "pointer",
   minHeight: 56,
 };
