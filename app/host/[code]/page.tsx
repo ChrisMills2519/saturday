@@ -216,6 +216,9 @@ export default function HostPage({ params }: { params: { code: string } }) {
             <>
               <h2 style={h2}>🗳️ Vote on your phones!</h2>
               <p style={{ fontSize: 22, opacity: 0.8 }}>{totalVotes}/{total} voted — tallies hidden until scores…</p>
+              {room.submissions.length <= 1 && (
+                <p style={{ fontSize: 18, opacity: 0.7 }}>Need 2+ answers to vote (solo players can&apos;t vote for themselves) — invite more phones or skip to scores.</p>
+              )}
               <motion.div variants={grid} initial="hidden" animate="show" style={gridStyle}>
                 {room.submissions.map((s) => (
                   <motion.div key={s.player_session} variants={cardV} style={card}>

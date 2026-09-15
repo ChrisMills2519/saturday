@@ -90,3 +90,9 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 **Verified:** `npm run typecheck` clean, `npm run build` green (host 3.67 kB / play 3.52 kB, +motion ~198 kB first load).
 
 **What's next:** run `supabase/schema.sql` in SQL Editor (adds `votes` table) → push to `master` → live smoke (create→join→submit→reveal→vote→score, double-vote 400, self-vote 400, refresh keeps submitted/voted state) → phone-on-mobile-data test.
+
+## 2026-09-15 — Solo-vote empty states
+
+**What changed:** solo test showed prompt + `Phase: VOTE` with nothing to tap — correct behavior (no self-vote) but a blank screen. Phone VOTE now shows a `Nothing to vote on yet 👀` card (explains the no-self-vote rule, echoes your answer) when no votable answers exist; host VOTE shows a `Need 2+ answers` nudge when ≤1 submission.
+
+**Verified:** `npm run typecheck` clean, `npm run build` green.

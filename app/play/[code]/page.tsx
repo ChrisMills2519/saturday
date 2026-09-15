@@ -135,6 +135,7 @@ function PlayInner({ code }: { code: string }) {
   if (!room) return <main style={wrap}><p>Loading…</p></main>;
 
   const mySub = room.submissions.find((s) => s.player_session === sid);
+  const votable = room.submissions.filter((s) => s.player_session !== sid);
   const sortedScores = Object.entries(room.scores)
     .map(([sessionId, pts]) => ({ sessionId, name: nameOf(room, sessionId), pts }))
     .sort((a, b) => b.pts - a.pts);
@@ -207,14 +208,22 @@ function PlayInner({ code }: { code: string }) {
               <p style={{ fontSize: 20, fontWeight: 700 }}>Voted ✓ for {nameOf(room, voted)}</p>
               <p style={{ opacity: 0.7 }}>Locked in — no take-backs. Results on TV soon.</p>
             </div>
+          ) : votable.length === 0 ? (
+            <div style={doneCard}>
+              <p style={{ fontSize: 20, fontWeight: 700 }}>Nothing to vote on yet 👀</p>
+              <p style={{ opacity: 0.7 }}>
+                {room.submissions.length <= 1
+                  ? "Only your answer is in — you can't vote for yourself. Grab another player, or get the host to skip to scores."
+                  : "Everyone else's answers will appear here."}
+              </p>
+              {mySub && <p style={{ opacity: 0.7 }}>Your answer: “{mySub.text_content ?? "🎨"}”</p>}
+            </div>
           ) : (
-            room.submissions
-              .filter((s) => s.player_session !== sid)
-              .map((s) => (
-                <motion.button key={s.player_session} onClick={() => vote(s.player_session)} whileTap={{ scale: 0.96 }} style={voteBtn}>
-                  {s.text_content ?? "(drawing coming in v2)"}
-                </motion.button>
-              ))
+            votable.map((s) => (
+              <motion.button key={s.player_session} onClick={() => vote(s.player_session)} whileTap={{ scale: 0.96 }} style={voteBtn}>
+                {s.text_content ?? "(drawing coming in v2)"}
+              </motion.button>
+            ))
           )}
           {voteErr && <p style={{ color: "#f87171" }}>{voteErr}</p>}
         </>
