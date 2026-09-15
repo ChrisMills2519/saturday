@@ -22,6 +22,15 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     patch.ends_at = null;
   }
   if (to === "LOBBY") patch.ends_at = null;
+  if (to === "LOBBY") {
+    // Rematch: same code, clean slate. Per-round rows stay in the DB but
+    // the snapshot only ever reads the current round, so a scores reset
+    // + round 0 is all a fresh game needs.
+    patch.ends_at = null;
+    patch.scores = {};
+    patch.current_round = 0;
+    patch.prompt = null;
+  }
   const { error } = await admin.from("rooms").update(patch).eq("code", code);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   await bumpSeq(code);

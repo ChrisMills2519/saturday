@@ -51,6 +51,16 @@ export const VOTE_SOLO = "Only your answer is in — you can't vote for yourself
 export const VOTE_NEED_MORE = "Need 2+ answers to vote (solo players can't vote for themselves) — invite more phones or skip to scores.";
 
 export const SCORE_TITLE = "Results!";
+export function roundOf(cur: number, total: number): string {
+  return `Round ${Math.max(cur, 1)} of ${total}`;
+}
+export function isFinalRound(cur: number, total: number): boolean {
+  return cur >= total;
+}
+export const FINAL_TITLE = "Final results!";
+export const FINAL_SUB = "Champion crowned. Rematch, or quit while you're behind.";
+export const REMATCH_LABEL = "Rematch (same code)";
+export const ONE_MORE_LABEL = "One more round";
 export function winnerLine(name: string): string {
   return `Winner: ${name}!`;
 }

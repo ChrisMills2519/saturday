@@ -188,3 +188,13 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 **Why:** host chose their own track for the game's voice; rule amendment records the working 2026 pipeline instead of the stale cloudscraper one.
 
 **Verified:** `typecheck` clean, `build` green; `next start` serves `/audio/lobby.mp3 200 audio/mpeg`, `/audio/lobby.ogg 200 audio/ogg`, `/audio/lobby-funkedup.mp3 200`. NOTE: a concurrent session re-encoded `lobby.mp3` mid-task (1.9MB/96k → 1.3MB/64k mono, now inside the 1.5MB loop budget) — shipped the on-disk version, flagged in chat. `CRON_SECRET` confirmed set in Vercel env by host.
+
+## 2026-09-15 — Game structure: 3-round games, start gating, rematch
+
+**What changed:** fixed-length games, server-authoritative. New `rooms.total_rounds` (migration applied live, default 3, in `schema.sql`): `POST /api/rooms` accepts `{total_rounds}` (clamped 1–9), `start` accepts an override while in LOBBY. `start` now 400s with fewer than 2 players (solo starts dead-end at VOTE via the no-self-vote rule). `next →LOBBY` resets `scores {}` + `current_round 0` + `prompt null` (rematch on the same code; per-round rows stay but the snapshot only reads the current round). Snapshot + `useRoom` type carry `total_rounds`/`game_type` (game_type reserved for drawing v2). TV: header shows `Best of N` in LOBBY / `Round X of N` after, LOBBY rounds stepper (1–9) + start-error line (`Need 2+ players`), SCORE shows `Final results!` + Rematch (same code) / One more round buttons on the last round. Phones: LOBBY `Best of N` note, SCORE final title + `hang tight — the host is setting it up`.
+
+**Why:** user picked "text-only Saturday-ready + drawing v2" — this is the structure slice (rounds, gating, rematch); durations stay 60s text until drawing sets its own. No engine transition changes (`SCORE→INPUT/LOBBY` already legal), single `ends_at` untouched.
+
+**Verified:** `typecheck` clean, `build` green (host 5.3 / play 4.71 kB). Live 13/13 API loop: create default/clamp (3, 9), solo + 1-player start 400, 2-player start 200 with override to 2, full 2-round game (submit→reveal→vote→score ×2, scores accumulate 1–1), SCORE r2 final (2>=2), rematch →LOBBY `r0 scores={} ends=null`. Pages `/ /host /play /preview` all 200; lobby mp3/ogg serve exact normalized bytes. NOTE: I deleted the gitignored 3.8MB `longlooplobby.mp3` raw before seeing the concurrent entry that meant to keep it on disk — normalized `lobby.*` preserve the audio; re-drop the raw if the stereo source is ever needed.
+
+**What's next:** push → Vercel redeploy + phone-on-mobile-data test → drawing v2 (DrawPad canvas → `image_url` submit-once, `DRAW_PROMPTS`, host/phone image rendering; Storage upload only if dataURL feels slow).

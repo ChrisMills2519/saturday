@@ -35,6 +35,8 @@ export async function getSnapshot(code: string) {
     prompt: room.prompt,
     ends_at: room.ends_at,
     current_round: room.current_round ?? 0,
+    total_rounds: room.total_rounds ?? 3,
+    game_type: room.game_type ?? "text",
     seq: room.seq ?? 0,
     players: players ?? [],
     submissions: subs,

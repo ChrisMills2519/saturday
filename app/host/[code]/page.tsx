@@ -34,6 +34,12 @@ import {
   voteProgress,
   VOTE_NEED_MORE,
   SCORE_TITLE,
+  FINAL_TITLE,
+  FINAL_SUB,
+  REMATCH_LABEL,
+  ONE_MORE_LABEL,
+  roundOf,
+  isFinalRound,
   winnerLine,
   SCORE_EMPTY,
 } from "@/lib/hostCopy";
@@ -170,6 +176,8 @@ export default function HostPage({ params }: { params: { code: string } }) {
   const left = useCountdown(room?.ends_at ?? null);
   const [muted, setMutedState] = useState(false);
   const [soundOn, setSoundOn] = useState(false);
+  const [rounds, setRounds] = useState(3);
+  const [startErr, setStartErr] = useState<string | null>(null);
   const [oneLiner, setOneLiner] = useState(0);
   const lastLeft = useRef<number | null>(null);
   const lastPlayers = useRef(0);
@@ -191,11 +199,13 @@ export default function HostPage({ params }: { params: { code: string } }) {
 
   async function post(path: string, body?: unknown) {
     if (ensureAudio()) setSoundOn(true);
-    await fetch(path, {
+    const res = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: body ? JSON.stringify(body) : undefined,
     });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, data };
   }
 
   function toggleMute() {
@@ -255,6 +265,21 @@ export default function HostPage({ params }: { params: { code: string } }) {
     }
   }, [room?.phase, soundOn, muted, musicOk]);
 
+  // Keep the LOBBY rounds stepper in sync with the server (default 3).
+  useEffect(() => {
+    if (room?.phase === "LOBBY" && typeof room.total_rounds === "number") {
+      setRounds(room.total_rounds);
+      setStartErr(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room?.total_rounds, room?.phase]);
+
+  async function startGame() {
+    setStartErr(null);
+    const { ok, data } = await post(`/api/rooms/${code}/start`, { total_rounds: rounds });
+    if (!ok) setStartErr(data?.error === "need 2+ players to start" ? "Need 2+ players — get one more phone in!" : `Couldn't start: ${data?.error ?? "unknown"}`);
+  }
+
   // Auto-advance INPUT -> REVEAL when the timer expires.
   useEffect(() => {
     if (!room || room.phase !== "INPUT" || left !== 0) return;
@@ -274,6 +299,8 @@ export default function HostPage({ params }: { params: { code: string } }) {
     );
 
   const phase = room.phase as Phase;
+  const totalRounds = room.total_rounds ?? 3;
+  const final = isFinalRound(room.current_round, totalRounds);
   const submitted = room.counts?.submitted ?? room.submissions.length;
   const total = room.counts?.total ?? Math.max(room.players.length, 1);
   const totalVotes = room.counts?.voted ?? room.submissions.reduce((n, s) => n + (s.votes ?? 0), 0);
@@ -308,7 +335,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
               <img src={qr} alt="Join QR" width={150} height={150} style={{ background: "#fff", padding: 8, borderRadius: 14, border: "3px solid #111", boxShadow: "5px 5px 0 #111" }} />
               <div>
                 <div style={{ fontFamily: DISPLAY_FONT, fontSize: 24 }}>
-                  Round {Math.max(room.current_round, 1)} · {PHASE_STATUS[phase] ?? phase}
+                  {room.phase === "LOBBY" ? `Best of ${totalRounds}` : roundOf(room.current_round, totalRounds)} · {PHASE_STATUS[phase] ?? phase}
                 </div>
                 <TimerBar left={left} />
                 <div style={{ marginTop: 6, fontSize: 18, opacity: 0.85 }}>Players: {room.players.length}</div>
@@ -342,9 +369,16 @@ export default function HostPage({ params }: { params: { code: string } }) {
                 ) : (
                   <p style={{ fontSize: 22, fontWeight: 800 }}>{lobbyReady(room.players.length)}</p>
                 )}
-                <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={() => post(`/api/rooms/${code}/start`, {})}>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8 }}>
+                  <span style={{ fontSize: 20, fontWeight: 800 }}>Rounds:</span>
+                  <button onClick={() => setRounds((r) => Math.max(1, r - 1))} style={stepBtn} aria-label="Fewer rounds">−</button>
+                  <span style={{ fontFamily: DISPLAY_FONT, fontSize: 28, minWidth: 40, textAlign: "center" }}>{rounds}</span>
+                  <button onClick={() => setRounds((r) => Math.min(9, r + 1))} style={stepBtn} aria-label="More rounds">+</button>
+                </div>
+                <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={startGame}>
                   Start round
                 </motion.button>
+                {startErr && <p style={{ color: "#ff8a8a", fontSize: 20, fontWeight: 800 }}>{startErr}</p>}
               </>
             )}
 
@@ -446,8 +480,9 @@ export default function HostPage({ params }: { params: { code: string } }) {
             {room.phase === "SCORE" && (
               <>
                 <h2 style={{ ...outlineTitle(52), display: "flex", alignItems: "center", gap: 12 }}>
-                  <TrophyIcon size={40} /> {SCORE_TITLE}
+                  <TrophyIcon size={40} /> {final ? FINAL_TITLE : SCORE_TITLE}
                 </h2>
+                {final && <p style={sub}>{FINAL_SUB}</p>}
                 <PlayerParade phase="SCORE" players={room.players} disabled={!!reduce} height={200} />
                 <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginTop: 16, minHeight: 220 }}>
                   {sortedScores.map((e, i) => (
@@ -479,9 +514,22 @@ export default function HostPage({ params }: { params: { code: string } }) {
                     <TrophyIcon size={28} /> {winnerLine(sortedScores[0].name)}
                   </p>
                 )}
-                <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={() => post(`/api/rooms/${code}/next`, { to: "INPUT" })}>
-                  Next round →
-                </motion.button>
+                <div style={{ display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
+                  {final ? (
+                    <>
+                      <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={() => post(`/api/rooms/${code}/next`, { to: "LOBBY" })}>
+                        {REMATCH_LABEL}
+                      </motion.button>
+                      <motion.button whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn, background: "#fff" }} onClick={() => post(`/api/rooms/${code}/next`, { to: "INPUT" })}>
+                        {ONE_MORE_LABEL} →
+                      </motion.button>
+                    </>
+                  ) : (
+                    <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={() => post(`/api/rooms/${code}/next`, { to: "INPUT" })}>
+                      Next round →
+                    </motion.button>
+                  )}
+                </div>
               </>
             )}
           </motion.section>
@@ -511,5 +559,6 @@ const chip: React.CSSProperties = { fontSize: 22, fontWeight: 800, color: "#111"
 const card: React.CSSProperties = { padding: 20, minHeight: 100 };
 const gridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16 };
 const bigBtn: React.CSSProperties = { padding: "16px 32px", fontSize: 24, marginTop: 12 };
+const stepBtn: React.CSSProperties = { width: 44, height: 44, fontSize: 24, fontWeight: 800, borderRadius: 12, border: "3px solid #111", background: "#fff", color: "#111", boxShadow: "3px 3px 0 #111", cursor: "pointer" };
 const podiumBar: React.CSSProperties = { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", gap: 6, padding: 14, borderRadius: 14, border: "3px solid #111", boxShadow: "5px 5px 0 #111" };
 const soundBtn: React.CSSProperties = { position: "fixed", bottom: 16, right: 16, zIndex: 60, padding: "10px 16px", fontSize: 15, fontWeight: 800, borderRadius: 999, background: "rgba(255,255,255,0.12)", color: "#fff", border: "1px solid rgba(255,255,255,0.25)", cursor: "pointer" };

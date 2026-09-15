@@ -1,6 +1,7 @@
 # Drop-in audio — exact names
 
-- `lobby.mp3` / `lobby.ogg` — 162s loop, mono 44.1kHz (~1.9MB / ~1.3MB). Host `<audio>` tries ogg first, mp3 fallback for Safari. Missing/broken → synth `startLobbyLoop()` in `lib/sfx.ts`.
+- `lobby.mp3` / `lobby.ogg` — 162s loop, mono 44.1kHz 64k (~1.29MB / ~1.17MB, `-14 LUFS` normalize 2026-09-15 to fit the <1.5MB budget). Host `<audio>` tries ogg first, mp3 fallback for Safari. Missing/broken → synth `startLobbyLoop()` in `lib/sfx.ts`. Previous Funked Up bed kept as `lobby-funkedup.*`.
+- `lobby-funkedup.mp3` / `lobby-funkedup.ogg` — 65s Funked Up loop (~763KB / ~584KB). Promote back by renaming if the new bed doesn't land.
 - `sfx/tick.ogg` — countdown tick (Kenney `click_001`, 4.8KB)
 - `sfx/submit.ogg` — submit confirm (Kenney `confirmation_004`, 13KB)
 - `sfx/vote.ogg` — vote pop (OGA `pop1` by cogitollc, 6.5KB)

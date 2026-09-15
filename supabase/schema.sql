@@ -6,6 +6,7 @@ create table if not exists rooms (
   prompt text,
   ends_at timestamptz,
   current_round int not null default 0,
+  total_rounds int not null default 3,
   scores jsonb not null default '{}'::jsonb,
   -- Monotonic bump per mutation (join/start/submit/vote/next). Clients
   -- drop broadcasts with seq <= last seen (out-of-order delivery guard).

@@ -24,6 +24,9 @@ import {
   REVEAL_LOOKUP_SUB,
   VOTED_TITLE,
   VOTE_EMPTY_TITLE,
+  FINAL_TITLE,
+  FINAL_SUB,
+  isFinalRound,
   SUBMIT_LATE,
   ALREADY_VOTED,
   personalLine,
@@ -71,6 +74,7 @@ function PlayInner({ code }: { code: string }) {
       .then((r) => r.json())
       .then((snap) => {
         if (snap && typeof snap.current_round !== "number") snap.current_round = 0;
+        if (snap && typeof snap.total_rounds !== "number") snap.total_rounds = 3;
         setInitial(snap);
       })
       .catch(() => {});
@@ -194,6 +198,7 @@ function PlayInner({ code }: { code: string }) {
     .sort((a, b) => b.pts - a.pts);
   const myScore = sortedScores.find((s) => s.sessionId === sid);
   const winner = sortedScores[0];
+  const final = isFinalRound(round, room.total_rounds ?? 3);
 
   return (
     <main style={{ ...stageBg, ...wrap }}>
@@ -216,6 +221,7 @@ function PlayInner({ code }: { code: string }) {
             <EyeIcon size={24} /> {JOINED_LOBBY_TITLE}
           </p>
           <p style={{ opacity: 0.7 }}>{JOINED_LOBBY_SUB}</p>
+          <p style={{ opacity: 0.7 }}>Best of {room.total_rounds ?? 3} — points carry across rounds.</p>
         </div>
       )}
 
@@ -302,6 +308,9 @@ function PlayInner({ code }: { code: string }) {
 
       {room.phase === "SCORE" && (
         <>
+          {final && (
+            <p style={{ fontSize: 22, fontWeight: 800, fontFamily: DISPLAY_FONT }}>{FINAL_TITLE}</p>
+          )}
           {winner && (
             <p style={{ fontSize: 22, fontWeight: 800, display: "flex", alignItems: "center", gap: 8 }}>
               <TrophyIcon size={26} />
@@ -315,6 +324,7 @@ function PlayInner({ code }: { code: string }) {
               </li>
             ))}
           </ul>
+          {final && <p style={{ opacity: 0.7 }}>{FINAL_SUB} Rematch? Hang tight — the host is setting it up.</p>}
         </>
       )}
     </main>
