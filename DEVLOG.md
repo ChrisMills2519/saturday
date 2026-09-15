@@ -106,3 +106,19 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 **Verified:** `typecheck` clean, `build` green (host 4.31 / play 4.64 kB); emoji grep over host/play/components = 0; headless API playtest PASS (3P full loop, all 400 guards); verification subagent independently PASSed edge cases (solo self-vote 400, reconnect dedupe, resubmit-edit collapse, round-2 prompt rotation, SCORE→LOBBY) + page smokes (/, /preview, /host, /play all 200). Screenshots blocked in-container (no Chromium libs, no root) — manual capture matrix recorded.
 
 **What's next:** run `supabase/schema.sql` (creates `votes` table + service_role grants — double-vote currently 200-fallback, becomes 400-guarded) → push → browser screenshot pass vs TMP refs → Slice 1 sound + announcer copy.
+
+## 2026-09-15 — Supabase access test + schema grants hardening
+
+**What changed:** connected this agent to Supabase (`saturday`, `eu-west-1`, ACTIVE_HEALTHY): management token in shell env + `Saturday/.env.local` (gitignored, server-only, never `NEXT_PUBLIC_`). Access test showed `rooms` (anon, 200), `players`/`submissions` (service_role, 200), but `votes` → 403 `permission denied for table votes` (same class of bug as the 2026-09-14 rooms grant outage — table created in SQL Editor with no API-role grants; service_role bypasses RLS so grants alone fix it). Hardened `supabase/schema.sql`: full grants on all 4 tables to `service_role`, `USAGE,SELECT` on all sequences (identity inserts), read-only `SELECT` to `anon, authenticated`. Safe to re-run.
+
+**Verified:** `typecheck` clean, `build` green (all 7 API routes). Live REST: rooms/players/submissions 200, management project 200. `votes` still 403 until the new grants are applied.
+
+**What's next:** run updated `supabase/schema.sql` in SQL Editor → re-test `votes` REST (expect 200) → full vote-loop smoke (double-vote 400, self-vote 400) → push → phone-on-mobile-data test.
+
+## 2026-09-15 — Ran schema grants via Management API (votes 403 fixed)
+
+**What changed:** user asked "can't you run the schema?" — yes: found beta `POST /v1/projects/{ref}/database/query` in the Management API docs, probed with a read-only grants query (201, empty = no grants on `votes`), then applied all 9 GRANTs from `supabase/schema.sql` directly (all 201, via `/tmp/opencode/supabase_query.py`, token via env only). No SQL Editor step needed.
+
+**Verified:** `votes` REST now 200 for both service_role and anon (was 403). No code changes; `typecheck`/`build` already green from the previous step.
+
+**What's next:** full vote-loop smoke (double-vote 400, self-vote 400) → push → phone-on-mobile-data test.
