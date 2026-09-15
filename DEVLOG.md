@@ -75,3 +75,18 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 **Verified:** `typecheck` clean, `build` green (all 7 API routes + `/preview` 8.08 kB), live loop on fresh dev server — create→2 joins→reconnect→start→2 submits→400 on bad submit→REVEAL→400 on bad jump→VOTE→vote→SCORE→LOBBY, with `GET` fresh after every step (`INPUT r1 ends=true`, `subs=2`, `SCORE votes=1,0 scores={Al:1}`). Local `/`, `/host`, `/play`, `/preview` all 200; Vercel root 200, `/preview` 404 (still unpushed). Direct-DB cross-check confirmed writes were always fine — only the GET read path was stale.
 
 **What's next:** push fix + `app/preview/` to `master` so Vercel redeploys (production still serves stale GETs until then) → phone-on-mobile-data test → Drawful canvas input via `image_url`. Note: this Chromebook container has 2.7 GiB RAM — `tsc` gets OOM-killed if a stale `next dev` is running; kill it first and use `NODE_OPTIONS=--max-old-space-size=1024`.
+
+## 2026-09-15 — Fun-killers fix + Motion show port
+
+**What changed (user picked "fix fun-killers first"):**
+- TV `/host`: blind INPUT (player cards show `locked in ✓` / `typing…` + `N/M submitted`, no answer spoilers), staggered REVEAL (motion spring 260/20), blind VOTE (tallies hidden, `N/M voted`), SCORE podium (`layout` springs + vote-count pops + 90-piece confetti + winner callout), phase-theatre `AnimatePresence`, timer urgency (red + pulse ≤10s), `?clean=1` hides join header for screenshare, auto-advances INPUT→REVEAL on timer expiry (server still authorizes).
+- Phones `/play`: submitted state (SVG success check + `You're in!` + count, derived from snapshot so refresh-safe), REVEAL `Look up! 👀` cue, VOTE single-lock with `already voted` feedback + persisted across refresh (`lib/persistence.ts` voted keys), 140-char counter, timer shake + HURRY ≤5s, SCORE winner callout + self highlight.
+- API hardening (server-authoritative): `submit` INPUT-only 400, `vote` VOTE-only + `session_id` required + self-vote 400 + one-vote-per-round via new `votes(room_code,round,voter_session)` unique guard (legacy fallback if table missing), `start` gains `canTransition` check, `next` clears stale `ends_at` outside INPUT + random prompt fallback.
+- Scores now keyed by `session_id` (rename/collision-proof); legacy name-keyed scores lazy-migrate on vote; host + phones resolve names via players list.
+- New `lib/prompts.ts`: 30 family-safe prompts (patch-notes / worst-advice / museum / last-text styles) — server picks random, hardcodes gone.
+
+**Why:** audit found 7 fun-killers (dead REVEAL phones, spoilers, vote spam, decorative timer, spreadsheet scores, 2 prompts, AFK host stalls). All fixes reuse the existing INPUT→REVEAL→VOTE→SCORE engine, single `ends_at` + local countdown (no ticks), generic submit.
+
+**Verified:** `npm run typecheck` clean, `npm run build` green (host 3.67 kB / play 3.52 kB, +motion ~198 kB first load).
+
+**What's next:** run `supabase/schema.sql` in SQL Editor (adds `votes` table) → push to `master` → live smoke (create→join→submit→reveal→vote→score, double-vote 400, self-vote 400, refresh keeps submitted/voted state) → phone-on-mobile-data test.

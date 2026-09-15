@@ -56,3 +56,14 @@ export function saveDraft(code: string, round: number, text: string): void {
 export function clearDraft(code: string, round: number): void {
   safeDel(draftKey(code, round));
 }
+
+const voteKey = (code: string, round: number) =>
+  `saturday:voted:${code.toUpperCase()}:${round}`;
+
+export function loadVoted(code: string, round: number): string | null {
+  return safeGet(voteKey(code, round));
+}
+
+export function saveVoted(code: string, round: number, target: string): void {
+  safeSet(voteKey(code, round), target);
+}

@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { canTransition, type Phase } from "@/lib/gameEngine";
+import { randomPrompt } from "@/lib/prompts";
 import { supabaseAdmin, broadcastRoom } from "@/lib/supabase";
 import { getSnapshot } from "@/lib/roomService";
 
@@ -9,12 +11,14 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   const admin = supabaseAdmin();
   const { data: room } = await admin.from("rooms").select("*").eq("code", code).single();
   if (!room) return NextResponse.json({ error: "no room" }, { status: 404 });
+  if (!canTransition(room.phase as Phase, "INPUT"))
+    return NextResponse.json({ error: `bad transition ${room.phase} -> INPUT` }, { status: 400 });
   const endsAt = new Date(Date.now() + 60_000).toISOString();
   const { error } = await admin
     .from("rooms")
     .update({
       phase: "INPUT",
-      prompt: prompt ?? "Say something funny.",
+      prompt: prompt ?? randomPrompt(room.prompt),
       ends_at: endsAt,
       current_round: (room.current_round ?? 0) + 1,
     })

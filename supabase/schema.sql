@@ -31,3 +31,16 @@ create table if not exists submissions (
   created_at timestamptz default now(),
   unique(room_code, round, player_session)
 );
+
+-- One vote per voter per round. Server inserts here first, so spam-clicks
+-- and double-votes collapse to a single row (unique voter guard).
+-- Run this file in the Supabase SQL Editor after pulling ("Success. No rows returned").
+create table if not exists votes (
+  id bigint generated always as identity primary key,
+  room_code text references rooms(code) on delete cascade,
+  round int not null,
+  voter_session text not null,
+  target_session text not null,
+  created_at timestamptz default now(),
+  unique(room_code, round, voter_session)
+);
