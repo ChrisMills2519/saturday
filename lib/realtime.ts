@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabaseBrowser } from "./supabase";
 
 export type RoomSnapshot = {
@@ -8,8 +8,10 @@ export type RoomSnapshot = {
   prompt: string | null;
   ends_at: string | null;
   current_round: number;
+  seq: number;
   players: { session_id: string; name: string }[];
   submissions: { player_session: string; text_content: string | null; image_url: string | null; votes: number }[];
+  counts: { submitted: number; voted: number; total: number };
   scores: Record<string, number>;
 };
 
@@ -17,6 +19,9 @@ export type RoomSnapshot = {
 // clients just re-render whatever the API route broadcasts.
 export function useRoom(code: string, initial: RoomSnapshot | null) {
   const [room, setRoom] = useState<RoomSnapshot | null>(initial);
+  // Monotonic seq guard: drop out-of-order broadcasts. The 3s GET
+  // fallback is always trusted and resyncs the baseline.
+  const lastSeq = useRef(initial?.seq ?? -1);
 
   useEffect(() => {
     if (!code) return;
@@ -24,7 +29,12 @@ export function useRoom(code: string, initial: RoomSnapshot | null) {
     const channel = supabase
       .channel(`room:${code}`, { config: { broadcast: { self: true } } })
       .on("broadcast", { event: "room_updated" }, ({ payload }) => {
-        setRoom(payload.room);
+        const next = payload.room as RoomSnapshot;
+        if (typeof next?.seq === "number") {
+          if (next.seq <= lastSeq.current) return;
+          lastSeq.current = next.seq;
+        }
+        setRoom(next);
       })
       .subscribe();
 
@@ -32,7 +42,11 @@ export function useRoom(code: string, initial: RoomSnapshot | null) {
     const poll = setInterval(async () => {
       try {
         const res = await fetch(`/api/rooms/${code}`, { cache: "no-store" });
-        if (res.ok) setRoom(await res.json());
+        if (res.ok) {
+          const snap = (await res.json()) as RoomSnapshot;
+          if (typeof snap?.seq === "number") lastSeq.current = snap.seq;
+          setRoom(snap);
+        }
       } catch {}
     }, 3000);
 

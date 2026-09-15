@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin, broadcastRoom } from "@/lib/supabase";
-import { getSnapshot } from "@/lib/roomService";
+import { getSnapshot, bumpSeq } from "@/lib/roomService";
 
 export async function POST(req: Request, { params }: { params: { code: string } }) {
   const code = params.code.toUpperCase();
@@ -17,6 +17,7 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     { onConflict: "room_code,round,player_session" }
   );
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  await bumpSeq(code);
   await broadcastRoom(code, await getSnapshot(code));
   return NextResponse.json({ ok: true });
 }

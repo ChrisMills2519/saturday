@@ -138,3 +138,13 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 **Verified:** `typecheck` clean, `build` green (host 6.88 / play 6.75 kB); regression API loop PASS (3P full game, double-vote 400, scores session-keyed).
 
 **What's next:** drop a CC0 mp3 at `public/audio/lobby.mp3` to upgrade the synth loop (optional) → browser sound pass (unlock, mute persist, reduced-motion) → protocol hardening (seq + INPUT redaction) → game structure (3 rounds, gating).
+
+## 2026-09-15 — Protocol hardening: seq + INPUT redaction + counts
+
+**What changed:** server-side anti-spoiler + ordering. New `rooms.seq` (migration applied live via Management API + in `schema.sql`): every mutation (join/start/submit/vote/next) bumps it via `bumpSeq()` in `roomService.ts`. `getSnapshot()` now returns `seq`, `counts {submitted, voted, total}`, and redacts `text_content`/`image_url` to null during INPUT (keeps `player_session` so locked-in roster still works) — devtools can no longer spoil answers; full text returns in REVEAL+. Clients: `useRoom()` drops broadcasts with `seq <= last seen` (3s GET fallback always trusted and resyncs); host + phone progress lines read server `counts`.
+
+**Why:** Jackbox Ecast equivalent (`pc`/version per sender) adapted to one Broadcast channel; redaction moves blindness from CSS discipline to server enforcement.
+
+**Verified:** `typecheck` clean, `build` green; 13/13 live API checks (seq strictly increasing, INPUT redacted but roster intact, REVEAL restores text, all vote guards 400, counts exact at every phase).
+
+**What's next:** game structure (3-round games, Start gating, per-round durations, rematch) → human browser/phones pass.

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { canTransition, type Phase } from "@/lib/gameEngine";
 import { randomPrompt } from "@/lib/prompts";
 import { supabaseAdmin, broadcastRoom } from "@/lib/supabase";
-import { getSnapshot } from "@/lib/roomService";
+import { getSnapshot, bumpSeq } from "@/lib/roomService";
 
 // Host starts a round. Timer = single ends_at timestamp, phones count down locally.
 export async function POST(req: Request, { params }: { params: { code: string } }) {
@@ -24,6 +24,7 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     })
     .eq("code", code);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  await bumpSeq(code);
   await broadcastRoom(code, await getSnapshot(code));
   return NextResponse.json({ ok: true });
 }

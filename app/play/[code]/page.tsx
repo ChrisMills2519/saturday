@@ -248,7 +248,7 @@ function PlayInner({ code }: { code: string }) {
           </AnimatePresence>
           <p style={{ fontSize: 20, fontWeight: 700 }}>{SUBMITTED_TITLE}</p>
           <p style={{ opacity: 0.7, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-            <EyeIcon size={22} /> Look at the TV — {room.submissions.length}/{Math.max(room.players.length, 1)} submitted.
+            <EyeIcon size={22} /> Look at the TV — {room.counts?.submitted ?? room.submissions.length}/{Math.max(room.counts?.total ?? room.players.length, 1)} submitted.
           </p>
         </div>
       )}

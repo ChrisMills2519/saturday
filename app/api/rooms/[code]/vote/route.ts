@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin, broadcastRoom } from "@/lib/supabase";
-import { getSnapshot } from "@/lib/roomService";
+import { getSnapshot, bumpSeq } from "@/lib/roomService";
 
 // One voter = one vote per round. Votes tallied blind (hidden until SCORE).
 // Scores keyed by session_id (stable across renames); legacy name-keyed
@@ -64,6 +64,7 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   scores[target_session] = (scores[target_session] ?? 0) + 1;
   await admin.from("rooms").update({ scores }).eq("code", code);
 
+  await bumpSeq(code);
   await broadcastRoom(code, await getSnapshot(code));
   return NextResponse.json({ ok: true });
 }

@@ -239,9 +239,9 @@ export default function HostPage({ params }: { params: { code: string } }) {
   if (!room) return <main style={wrap}><h1>{code}</h1><p>Loading room…</p></main>;
 
   const phase = room.phase as Phase;
-  const submitted = room.submissions.length;
-  const total = Math.max(room.players.length, 1);
-  const totalVotes = room.submissions.reduce((n, s) => n + (s.votes ?? 0), 0);
+  const submitted = room.counts?.submitted ?? room.submissions.length;
+  const total = room.counts?.total ?? Math.max(room.players.length, 1);
+  const totalVotes = room.counts?.voted ?? room.submissions.reduce((n, s) => n + (s.votes ?? 0), 0);
   const sortedScores = Object.entries(room.scores)
     .map(([sid, pts]) => ({ sid, name: nameOf(room, sid), pts }))
     .sort((a, b) => b.pts - a.pts);
