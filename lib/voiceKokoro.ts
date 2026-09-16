@@ -35,11 +35,13 @@ export function setKokoroVoice(v: KokoroVoiceId): void {
 
 // Smug trivia nerd, neural edition: Kokoro has no pitch knob, only speed
 // (+ speaker choice). Question-only copy (?) gets a natural rise from the
-// model — force a declarative fall on mic-drop types so the winner lands.
+// model — force a declarative fall on mic-drop hype only (score_winner /
+// score_unanimous) so the winner lands. Punchline keeps its lift: the
+// shutout/ready jokes need the rise to read backhanded, not sincere.
 const SPEED: Record<LineType, number> = {
   setup: 1.05,
-  punchline: 0.9,
-  aside: 1.15,
+  punchline: 0.85,
+  aside: 1.2,
   roast: 1.0,
   hype: 0.95,
 };
@@ -47,7 +49,7 @@ const SPEED: Record<LineType, number> = {
 function prosodyText(text: string, type: LineType): string {
   const t = text.trim();
   if (!t) return t;
-  if (type === "hype" || type === "punchline") {
+  if (type === "hype") {
     // Terminal fall: "who peaked tonight?" -> "who peaked tonight..."
     if (/\?\s*$/.test(t)) return t.replace(/\?\s*$/, "...");
   }
@@ -128,10 +130,18 @@ export function warmupKokoro(onProgress?: (p: number) => void): Promise<void> {
         device: "wasm",
         progress_callback: (ev: unknown) => {
           try {
+            // transformers.js reports progress 0–100 (not 0–1), and when the
+            // CDN omits Content-Length every event reads exactly 100 with
+            // total tracking loaded. Only trust intermediate values; hold
+            // the last real one otherwise instead of faking instant 100%.
             const e = ev as { loaded?: number; total?: number; progress?: number };
-            if (typeof e.progress === "number") progress = e.progress;
-            else if (e.loaded != null && e.total) progress = e.loaded / e.total;
-            else return;
+            if (typeof e.progress === "number" && e.progress > 0 && e.progress < 100) {
+              progress = e.progress / 100;
+            } else if (e.loaded != null && e.total && e.loaded < e.total) {
+              progress = e.loaded / e.total;
+            } else {
+              return;
+            }
             progress = Math.max(0, Math.min(1, progress));
             onProgress?.(progress);
           } catch {}
