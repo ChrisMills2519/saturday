@@ -76,7 +76,7 @@ import {
   kokoroReady,
   pregenVoice,
 } from "@/lib/voice";
-import { phaseLine, saySlot, sayAnswer, sayInputPrompt, sayQuizQuestion, sayQuizAnswer, sayStall, scoreExtras, shutUp, estimateMs } from "@/lib/hostLines";
+import { phaseLine, saySlot, saySlotFree, sayAnswer, sayInputPrompt, sayQuizQuestion, sayQuizAnswer, sayStall, scoreExtras, shutUp, estimateMs } from "@/lib/hostLines";
 import { isFinalRound, MAX_PLAYERS, type GameType } from "@/lib/gameEngine";
 import { isHouseSession, letterForSession } from "@/lib/quiz";
 import type { Phase } from "@/app/preview/HumanoidWalker";
@@ -266,6 +266,11 @@ export default function HostPage({ params }: { params: { code: string } }) {
   const [startErr, setStartErr] = useState<string | null>(null);
   const [actionErr, setActionErr] = useState<string | null>(null);
   const [advancing, setAdvancing] = useState(false);
+  // EMERGENCY ONLY: hidden host override (long-press room code, 800ms).
+  // The TV is a display after Start — this exists solely to unstick a round
+  // (dead phone, lost token). No visible affordance, never documented on-screen.
+  const [showMod, setShowMod] = useState(false);
+  const hatchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [oneLiner, setOneLiner] = useState(0);
   const [revealed, setRevealed] = useState(0);
   const [tallyShown, setTallyShown] = useState(false);
@@ -326,6 +331,26 @@ export default function HostPage({ params }: { params: { code: string } }) {
     } finally {
       setAdvancing(false);
     }
+  }
+
+  // EMERGENCY ONLY hatch handlers: 800ms press-and-hold on the room code.
+  function hatchDown() {
+    if (hatchTimer.current) clearTimeout(hatchTimer.current);
+    hatchTimer.current = setTimeout(() => setShowMod((v) => !v), 800);
+  }
+  function hatchUp() {
+    if (hatchTimer.current) {
+      clearTimeout(hatchTimer.current);
+      hatchTimer.current = null;
+    }
+  }
+  // Phase-aware skip: fires the same next call the deleted buttons used.
+  async function hatchSkip() {
+    if (!room) return;
+    const to =
+      room.phase === "INPUT" ? "REVEAL" : room.phase === "REVEAL" ? "VOTE" : room.phase === "VOTE" ? "SCORE" : null;
+    if (!to) return;
+    await advance(to);
   }
 
   function toggleMute() {
@@ -465,8 +490,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
       const leadMs = estimateMs(line.text);
       scoreExtras(room.submissions, sarcasm, usedLines.current, leadMs);
       if (room.submissions.length >= 2) {
-        const id = setTimeout(() => saySlot("score_award", sarcasm, usedLines.current), leadMs + 8000);
-        extrasTimers.current.push(id);
+        saySlotFree("score_award", sarcasm, usedLines.current, leadMs + 8000);
       }
       // Quiz answer reveal: correct/nobody line + answer, behind the winner.
       if (room.quiz?.correct_session) {
@@ -585,35 +609,17 @@ export default function HostPage({ params }: { params: { code: string } }) {
     if (!ok) setActionErr(`Couldn't remove ${label}: ${data?.error ?? "unknown"}`);
   }
 
-  // Auto-advance INPUT -> REVEAL and VOTE -> SCORE when the timer expires.
-  // Quiz-classic opens in REVEAL (read window), so its clock marches
-  // REVEAL -> VOTE instead. Server clears ends_at on the destination phase,
-  // so left hits 0 once.
-  // Guard: empty rounds don't march themselves. If nothing was submitted/voted,
-  // surface a prompt to the host instead of advancing into a content-less phase.
+  // Auto-advance on the clock: INPUT -> REVEAL, REVEAL -> VOTE (all game
+  // types — REVEAL carries ends_at now), VOTE -> SCORE. Phase 1 policy:
+  // thin rounds advance anyway rather than parking on a host prompt.
+  // SCORE stays manual (host picks Next round / Rematch). Server clears
+  // ends_at on the destination phase, so left hits 0 once.
+  // Accepted limitation: the TV tab must stay open — this timer is the
+  // only fallback, there are no server ticks.
   useEffect(() => {
     if (!room || left !== 0) return;
     if (room.phase !== "INPUT" && room.phase !== "VOTE" && room.phase !== "REVEAL") return;
-    if (room.phase === "REVEAL") {
-      if (room.game_type !== "quiz-classic") return;
-      const key = `${code}:${room.current_round}:${room.phase}`;
-      if (autoFired.current === key) return;
-      autoFired.current = key;
-      post(`/api/rooms/${code}/next`, { to: "VOTE" });
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      return;
-    }
-    const submitted = room.counts?.submitted ?? room.submissions.length;
-    const totalVotes = room.counts?.voted ?? room.submissions.reduce((n, s) => n + (s.votes ?? 0), 0);
-    if (room.phase === "INPUT" && submitted < 2) {
-      setActionErr("Time's up with thin answers — whose call: Reveal or wait?");
-      return;
-    }
-    if (room.phase === "VOTE" && totalVotes < 1) {
-      setActionErr("No votes yet — whose call: scores or more time?");
-      return;
-    }
-    const to = room.phase === "INPUT" ? "REVEAL" : "SCORE";
+    const to = room.phase === "INPUT" ? "REVEAL" : room.phase === "REVEAL" ? "VOTE" : "SCORE";
     const key = `${code}:${room.current_round}:${room.phase}`;
     if (autoFired.current === key) return;
     autoFired.current = key;
@@ -697,7 +703,15 @@ export default function HostPage({ params }: { params: { code: string } }) {
             <div style={{ display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
               <div>
                 <div style={{ fontFamily: DISPLAY_FONT, fontSize: 18, letterSpacing: 3, opacity: 0.8 }}>JOIN AT</div>
-                <div style={{ ...outlineTitle(72), fontSize: "clamp(48px, 8vw, 96px)" }}>{room.code}</div>
+                <div
+                  style={{ ...outlineTitle(72), fontSize: "clamp(48px, 8vw, 96px)", userSelect: "none" }}
+                  onPointerDown={hatchDown}
+                  onPointerUp={hatchUp}
+                  onPointerLeave={hatchUp}
+                  onContextMenu={(e) => e.preventDefault()}
+                >
+                  {room.code}
+                </div>
                 <div style={{ fontSize: 28, fontWeight: 800 }}>{joinUrl}</div>
                 <div style={{ fontSize: 16, opacity: 0.8 }}>Phones go to the link above — whose phone is first?</div>
               </div>
@@ -716,6 +730,17 @@ export default function HostPage({ params }: { params: { code: string } }) {
               <Mascot src={mascotSrc} alt="Saturday host" size={170} bounce={mascotBounce} />
             </div>
           </header>
+        )}
+        {showMod && (
+          <div style={{ marginTop: 8, background: "rgba(0,0,0,0.6)", border: "2px dashed rgba(255,255,255,0.4)", borderRadius: 12, padding: "8px 14px", maxWidth: 720 }}>
+            <div style={{ fontSize: 14, fontWeight: 800, opacity: 0.8 }}>EMERGENCY — hidden host override</div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+              <button onClick={hatchSkip} disabled={advancing} style={kickBtn}>Skip phase →</button>
+              <button onClick={extendTime} style={kickBtn}>+30s</button>
+              <button onClick={() => setShowMod(false)} style={kickBtn}>Hide</button>
+            </div>
+            {actionErr && <p role="alert" style={{ color: "#ff8a8a", fontSize: 16, fontWeight: 800 }}>{actionErr}</p>}
+          </div>
         )}
 
         <AnimatePresence mode="wait">
@@ -861,9 +886,6 @@ export default function HostPage({ params }: { params: { code: string } }) {
                   <motion.button whileTap={{ scale: 0.96 }} style={tvBtn} onClick={extendTime} aria-label="Add 30 seconds">
                     <BtnLabel><TimerIcon size={22} /> {EXTEND_LABEL}</BtnLabel>
                   </motion.button>
-                  <motion.button whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={() => advance("REVEAL")} disabled={advancing} aria-label="Reveal answers">
-                    <BtnLabel>Reveal <MaskIcon size={24} /></BtnLabel>
-                  </motion.button>
                 </div>
                 {actionErr && <p role="alert" style={{ color: "#ff8a8a", fontSize: 20, fontWeight: 800 }}>{actionErr}</p>}
               </>
@@ -926,16 +948,9 @@ export default function HostPage({ params }: { params: { code: string } }) {
                     </div>
                   )}
                 </motion.div>
-                <div style={{ display: "flex", gap: 12, marginTop: 24, flexWrap: "wrap" }}>
-                  {revealed < answerCount && (
-                    <motion.button whileTap={{ scale: 0.96 }} style={tvBtn} onClick={() => setRevealed(answerCount)} aria-label="Show every answer">
-                      Show all
-                    </motion.button>
-                  )}
-                  <motion.button whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={() => advance("VOTE")} disabled={advancing} aria-label="Start voting">
-                    <BtnLabel>Start voting <BallotIcon size={24} /></BtnLabel>
-                  </motion.button>
-                </div>
+                {revealed < answerCount && (
+                  <p style={{ fontSize: 18, opacity: 0.7 }}>Rolling the answers out — voting opens on its own…</p>
+                )}
                 {actionErr && <p role="alert" style={{ color: "#ff8a8a", fontSize: 20, fontWeight: 800 }}>{actionErr}</p>}
               </>
             )}
@@ -971,9 +986,6 @@ export default function HostPage({ params }: { params: { code: string } }) {
                 <div style={{ display: "flex", gap: 12, marginTop: 24, flexWrap: "wrap" }}>
                   <motion.button whileTap={{ scale: 0.96 }} style={tvBtn} onClick={extendTime} aria-label="Add 30 seconds">
                     <BtnLabel><TimerIcon size={22} /> {EXTEND_LABEL}</BtnLabel>
-                  </motion.button>
-                  <motion.button whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={() => advance("SCORE")} disabled={advancing} aria-label="Show scores">
-                    <BtnLabel>Show scores <TrophyIcon size={24} /></BtnLabel>
                   </motion.button>
                 </div>
                 {actionErr && <p role="alert" style={{ color: "#ff8a8a", fontSize: 20, fontWeight: 800 }}>{actionErr}</p>}

@@ -28,6 +28,11 @@ export const INPUT_SECONDS = 60;
 export const VOTE_SECONDS = 30;
 // Quiz-classic read window: question + choices on TV before VOTE opens.
 export const QUIZ_READ_SECONDS = 15;
+// REVEAL show window: matches the host card-slam cadence (700ms first card,
+// ~2300ms per card after). Floor of 7s so tiny rounds still breathe.
+export function revealSeconds(count: number): number {
+  return Math.max(7, Math.round(1.5 + 2.3 * Math.max(0, count)));
+}
 export const SCORE_PER_VOTE = 100;
 export const FINAL_MULTIPLIER = 2;
 export const UNANIMOUS_BONUS = 250;

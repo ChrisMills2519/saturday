@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin, broadcastRoom } from "@/lib/supabase";
 import { getSnapshot, bumpSeq } from "@/lib/roomService";
-import { canTransition } from "@/lib/gameEngine";
+import { canTransition, revealSeconds } from "@/lib/gameEngine";
 import { ANSWER_MAX, sanitizeText, rejectReasonForAnswer } from "@/lib/validation";
 
 export async function POST(req: Request, { params }: { params: { code: string } }) {
@@ -38,7 +38,7 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   const submitted = snap?.counts?.submitted ?? 0;
   const total = snap?.counts?.total ?? 0;
   if (snap?.phase === "INPUT" && total >= 2 && submitted >= total && canTransition("INPUT", "REVEAL")) {
-    await admin.from("rooms").update({ phase: "REVEAL", ends_at: null, input_total: null }).eq("code", code).eq("phase", "INPUT");
+    await admin.from("rooms").update({ phase: "REVEAL", ends_at: new Date(Date.now() + revealSeconds(submitted) * 1000).toISOString(), input_total: null }).eq("code", code).eq("phase", "INPUT");
   }
   await bumpSeq(code);
   await broadcastRoom(code, await getSnapshot(code));

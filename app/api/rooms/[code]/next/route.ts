@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { canTransition, INPUT_SECONDS, VOTE_SECONDS, type Phase } from "@/lib/gameEngine";
+import { canTransition, INPUT_SECONDS, VOTE_SECONDS, revealSeconds, type Phase } from "@/lib/gameEngine";
 import { nextTextPrompt, nextDrawPrompt, hintForPrompt } from "@/lib/prompts";
 import { drawHintFor } from "@/lib/prompts_draw";
 import { supabaseAdmin, broadcastRoom } from "@/lib/supabase";
@@ -20,7 +20,7 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     headerToken !== (room as Record<string, unknown>).host_token
   )
     return NextResponse.json({ error: "host token required" }, { status: 403 });
-  if (!canTransition(room.phase as Phase, to as Phase))
+  if (!canTransition(room.phase as Phase, to as Phase, (room.game_type as string | null) ?? null))
     return NextResponse.json({ error: `bad transition ${room.phase} -> ${to}` }, { status: 400 });
   const patch: Record<string, unknown> = { phase: to as string };
   if (to === "INPUT") {
@@ -57,6 +57,16 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     patch.used_prompts = [...used, patch.prompt as string].slice(-120);
   } else if (to === "VOTE") {
     patch.ends_at = new Date(Date.now() + VOTE_SECONDS * 1000).toISOString();
+  } else if (to === "REVEAL") {
+    // Clocked REVEAL: the host timer auto-advances REVEAL -> VOTE at zero
+    // for every game type (Phase 1: TV runs itself after Start).
+    const { count: subCount } = await admin
+      .from("submissions")
+      .select("id", { count: "exact", head: true })
+      .eq("room_code", code)
+      .eq("round", room.current_round ?? 0);
+    patch.ends_at = new Date(Date.now() + revealSeconds(subCount ?? 0) * 1000).toISOString();
+    patch.input_total = null;
   } else {
     patch.ends_at = null;
     patch.input_total = null;
@@ -81,6 +91,7 @@ export async function POST(req: Request, { params }: { params: { code: string } 
       fallback.prompt = patch.prompt;
       fallback.ends_at = patch.ends_at;
     } else if (to === "VOTE") fallback.ends_at = patch.ends_at;
+    else if (to === "REVEAL") fallback.ends_at = patch.ends_at;
     else if (to === "SCORE") {
       fallback.ends_at = null;
       fallback.input_total = null;
