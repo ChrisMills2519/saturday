@@ -12,39 +12,35 @@
 
 import { ensureAudio, getAudioContext } from "./sfx";
 import { chunkLine, type LineType } from "./voice";
+import { getVoiceProfile, VOICE_CHOICES } from "./voiceProfile";
 
 export const KOKORO_MODEL = "onnx-community/Kokoro-82M-v1.0-ONNX";
 export const KOKORO_VOICES = ["bm_fable", "bf_emma"] as const;
 export type KokoroVoiceId = (typeof KOKORO_VOICES)[number];
 
-// One voice for the whole game: Emma. Legacy stored Fable prefs migrate silently.
+// Voice + speeds come from the Voice Lab profile (lib/voiceProfile.ts):
+// /voicelab tunes them, "Save to game" persists, and the engine reads the
+// saved profile at gen time. Fallback when nothing saved = Emma as shipped
+// with the DEFAULT_PROFILE speeds (the pre-lab tuning).
 export function getKokoroVoice(): KokoroVoiceId {
-  return "bf_emma";
+  return getVoiceProfile().voice as KokoroVoiceId;
 }
 
-export function setKokoroVoice(): void {}
+export const KOKORO_VOICE_LABELS = VOICE_CHOICES;
 
-// Smug trivia nerd, neural edition: Kokoro has no pitch knob, only speed
-// (+ speaker choice). Question-only copy (?) gets a natural rise from the
-// model — force a declarative fall on mic-drop hype only (score_winner /
-// score_unanimous) so the winner lands. Punchline keeps its lift: the
-// shutout/ready jokes need the rise to read backhanded, not sincere.
-const SPEED: Record<LineType, number> = {
-  setup: 1.05,
-  punchline: 0.85,
-  aside: 1.2,
-  roast: 1.0,
-  hype: 0.95,
-};
+// Kokoro reads punctuation and nothing else: `?` rises, `...` falls,
+// `!` adds energy, `.` resets. Never rewrite terminal `?` — the 2026-09-16
+// hype `?→...` rule flattened every interrogative mic-drop into an
+// announcement. Questions keep their `?`; hype gets `!`/speed instead.
+// Speeds are profile-driven; the DEFAULT_PROFILE values keep the old
+// 0.9–1.1 discipline for stock installs (punchline slowdown without pitch
+// lift reads deadpan, aside rush reads mumbled).
+function speedFor(type: LineType): number {
+  return getVoiceProfile().speeds[type] ?? 1;
+}
 
-function prosodyText(text: string, type: LineType): string {
-  const t = text.trim();
-  if (!t) return t;
-  if (type === "hype") {
-    // Terminal fall: "who peaked tonight?" -> "who peaked tonight..."
-    if (/\?\s*$/.test(t)) return t.replace(/\?\s*$/, "...");
-  }
-  return t;
+function prosodyText(text: string, _type: LineType): string {
+  return text.trim();
 }
 
 // --- Loader (singleton) ------------------------------------------------------
@@ -200,7 +196,7 @@ async function genChunk(
   voice: string,
 ): Promise<AudioBuffer | null> {
   if (!tts) return null;
-  const speed = SPEED[type] ?? 1;
+  const speed = speedFor(type);
   const key = cacheKey(voice, speed, text);
   const hit = bufCache.get(key);
   if (hit) return hit;
@@ -241,7 +237,7 @@ export function pregenerateKokoro(lines: { text: string; type: LineType }[]): vo
       const chunks = chunkLine(l.text);
       for (const c of chunks) {
         if (!c.text) continue;
-        const key = cacheKey(voice, SPEED[l.type] ?? 1, prosodyText(c.text, l.type));
+        const key = cacheKey(voice, speedFor(l.type), prosodyText(c.text, l.type));
         if (bufCache.has(key)) continue;
         try {
           await genChunk(c.text, l.type, voice);
@@ -280,32 +276,35 @@ function playBuffer(buf: AudioBuffer): Promise<void> {
 }
 
 /**
- * Play one line through Kokoro. Resolves when done OR cancelled.
- * shouldCancel is polled between chunks (gen + playback + gaps).
+ * Play one line through Kokoro. Resolves true when done OR cancelled
+ * (channel owned by a newer line — no fallback), false when nothing audible
+ * happened (not ready / audio locked / gen failed → caller falls back to
+ * Tier 1 so the game never goes mute).
  */
 export async function playKokoroLine(
   line: string,
   type: LineType,
   shouldCancel: () => boolean,
-): Promise<void> {
-  if (!tts || !ready) return;
-  if (!ensureAudio()) return;
+): Promise<boolean> {
+  if (!tts || !ready) return false;
+  if (!ensureAudio()) return false;
   const voice = getKokoroVoice();
   const chunks = chunkLine(line);
-  if (!chunks.length) return;
+  if (!chunks.length) return true;
   for (const c of chunks) {
-    if (shouldCancel()) return;
+    if (shouldCancel()) return true;
     if (!c.text) {
       await sleep(c.pauseAfter);
       continue;
     }
     const buf = await genChunk(c.text, type, voice);
-    if (shouldCancel()) return;
-    if (!buf) return; // gen failed: drop (Tier 1 fallback owns retry policy)
+    if (shouldCancel()) return true;
+    if (!buf) return false;
     await playBuffer(buf);
-    if (shouldCancel()) return;
+    if (shouldCancel()) return true;
     if (c.pauseAfter > 0) await sleep(c.pauseAfter);
   }
+  return true;
 }
 
 /** Stop current neural audio (phase change, mute, takeover). */
@@ -314,4 +313,10 @@ export function cancelKokoro(): void {
     currentSource?.stop();
   } catch {}
   currentSource = null;
+}
+
+/** Drop every cached gen buffer — called when the voice profile changes
+ * (cache keys embed the old voice/speed; stale audio must not survive). */
+export function clearKokoroCache(): void {
+  bufCache.clear();
 }

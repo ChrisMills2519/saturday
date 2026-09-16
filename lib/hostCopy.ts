@@ -1,9 +1,9 @@
-// Saturday announcer copy. The voice asks the questions: every phase
-// gets a title card + question subline, plus rotating questions
-// to cover dead air during INPUT. Family-safe snark,
-// second person, questions first and never instructions. No emoji — icons
-// in components/icons.tsx carry the visual weight. Rules live in tiny
-// silent captions + API errors only (e.g. no self-vote).
+// Saturday announcer copy. The voice performs: every phase gets a title
+// card + subline, plus rotating lines to cover dead air during INPUT.
+// Savage Emma, second person, accusations over announcements. No emoji —
+// icons in components/icons.tsx carry the visual weight. The voice may teach
+// rules as jokes (one funny how-to per phase max); tiny silent captions +
+// API errors stay as backup (e.g. no self-vote).
 
 export const COLD_OPEN = "Saturday night — zero dignity required... so who's losing with style?";
 

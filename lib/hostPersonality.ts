@@ -1,15 +1,18 @@
-// Saturday host personality: smug trivia nerd who asks questions, never
-// teaches the rules. Savage-only: one voice for the whole game.
-// hostCopy.ts stays the baseline for on-screen text; this file owns what the
-// VOICE says. Every line is interrogative (contains "?").
+// Saturday host personality: savage Emma, one voice for the whole game.
+// Smug trivia nerd who performs, never announces. hostCopy.ts stays the
+// baseline for on-screen text; this file owns what the VOICE says.
+// Questions where funny, declaratives where announcing — no 100% `?` rule
+// (it forced status updates into question drag + fed the ?→... flattener).
+// The voice MAY teach rules, but only as jokes (one funny how-to per phase
+// max); silent captions stay as backup, not sole teacher.
 // Beat markers ("...", " — ", "[beat]") are rendered as pauses by
 // lib/voice.ts chunkLine() — and map to silence tokens for Kokoro later.
 //
-// Target policy: roast answers + the room and slow behavior, may name slow
-// typers by first name (sanitized, 16 chars max). Never punches identity.
-// Shutout lines stay backhanded-kind — zero votes already hurts.
+// Target policy: roast answer-logic hard, name slow typers by first name
+// (sanitized, 16 chars max), sting shutouts once then comfort — zero votes
+// already hurts, so one jab max.
 // Self-vote / device / timing rules live in tiny silent on-screen captions
-// + API errors only, never in the voice.
+// + API errors too, but the voice may riff on them once as a joke.
 
 import type { SarcasmMode, LineType } from "./voice";
 

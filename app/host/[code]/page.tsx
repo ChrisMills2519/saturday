@@ -75,6 +75,8 @@ import {
   speak,
   kokoroReady,
   pregenVoice,
+  getVoiceProfile,
+  voiceLabel,
 } from "@/lib/voice";
 import { phaseLine, saySlot, saySlotFree, sayAnswer, sayInputPrompt, sayQuizQuestion, sayQuizAnswer, sayStall, scoreExtras, shutUp, estimateMs } from "@/lib/hostLines";
 import { isFinalRound, MAX_PLAYERS, type GameType } from "@/lib/gameEngine";
@@ -218,12 +220,16 @@ export default function HostPage({ params }: { params: { code: string } }) {
   const kokoroOn = true;
   const [kokoroPct, setKokoroPct] = useState(0);
   const [kokoroIsReady, setKokoroIsReady] = useState(false);
+  // Named from the saved voice profile (/voicelab). Read after mount only —
+  // localStorage during render would desync the server HTML.
+  const [voiceName, setVoiceName] = useState("Emma");
   const usedLines = useRef<Set<string>>(new Set());
   const stallFired = useRef("");
   const extrasTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => {
     setVoiceOnState(isVoiceEnabled());
     setKokoroIsReady(kokoroReady());
+    setVoiceName(voiceLabel(getVoiceProfile().voice));
   }, []);
   // Poll neural warmup progress (cheap, LOBBY-only display).
   useEffect(() => {
@@ -813,7 +819,14 @@ export default function HostPage({ params }: { params: { code: string } }) {
                 <details style={{ marginTop: 8, background: "rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 14px", maxWidth: 720 }}>
                   <summary style={{ fontSize: 18, fontWeight: 800, cursor: "pointer" }}>Host options — whose tweaks are these?</summary>
                 <p style={{ fontSize: 18, fontWeight: 800, margin: "8px 0 0" }} role="status">
-                  Voice: Emma (savage) — {kokoroIsReady ? "ready, whose ears are burning?" : kokoroPct > 0 ? `warming… ${Math.round(kokoroPct * 100)}% — who's patient?` : "warming… who's patient?"}
+                  Voice: {voiceName} (savage) — {kokoroIsReady ? "ready, whose ears are burning?" : kokoroPct > 0 ? `warming… ${Math.round(kokoroPct * 100)}% — who's patient?` : "warming… who's patient?"}
+                </p>
+                <p style={{ fontSize: 16, opacity: 0.8, margin: "4px 0 0" }}>
+                  Want a different voice or cadence? Tune it in the{" "}
+                  <a href="/voicelab" target="_blank" rel="noreferrer" style={{ color: "#a78bfa", fontWeight: 800 }}>
+                    Voice Lab
+                  </a>{" "}
+                  on this laptop — it saves to this browser and the game uses it from the next line.
                 </p>
                 <div style={{ marginTop: 8, maxWidth: 640 }}>
                   <label htmlFor="custom-prompt" style={{ fontSize: 18, fontWeight: 800, display: "block", marginBottom: 4 }}>

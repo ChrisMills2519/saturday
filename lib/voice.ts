@@ -12,6 +12,7 @@
 // gaps in lib/voiceKokoro.ts. Call sites don't change.
 
 import { isMuted } from "./sfx";
+import { getVoiceProfile, type VoiceProfile } from "./voiceProfile";
 
 const VOICE_KEY = "saturday:voice"; // "1" = on, "0" = off. Default on.
 const KOKORO_KEY = "saturday:kokoro"; // "1" = try Kokoro, "0" = Tier 1 only. Default on (full swap).
@@ -26,14 +27,15 @@ export type SpeakOpts = {
   sticky?: boolean;
 };
 
-// Smug trivia nerd: a touch fast, slightly low, punchlines slow down into
-// condescension. Hype is reserved for winner lines so they land by contrast.
+// Savage Emma: contrast without caricature. Punchline dips (not dives) so
+// backhanded jokes keep their rise; aside stays audible; hype lifts.
+// (Tier-1 fallback only — Kokoro path uses speed + punctuation instead.)
 const PRESETS: Record<LineType, { rate: number; pitch: number; vol: number }> = {
-  setup: { rate: 1.12, pitch: 0.9, vol: 1 },
-  punchline: { rate: 0.95, pitch: 0.75, vol: 1 },
-  aside: { rate: 1.22, pitch: 1.0, vol: 0.7 },
-  roast: { rate: 1.05, pitch: 0.82, vol: 1 },
-  hype: { rate: 1.0, pitch: 1.1, vol: 1 },
+  setup: { rate: 1.05, pitch: 0.95, vol: 1 },
+  punchline: { rate: 1.0, pitch: 0.9, vol: 1 },
+  aside: { rate: 1.1, pitch: 1.0, vol: 0.85 },
+  roast: { rate: 1.0, pitch: 0.9, vol: 1 },
+  hype: { rate: 1.05, pitch: 1.1, vol: 1 },
 };
 
 export function isVoiceEnabled(): boolean {
@@ -122,6 +124,23 @@ export function kokoroReady(): boolean {
   return kokoroIsReady;
 }
 
+// --- Voice profile ------------------------------------------------------------
+// The Voice Lab (/voicelab) owns delivery: Kokoro voice + per-line-type
+// speeds live in voiceKokoro, pause gaps live in chunkLine below. Both read
+// the same saved profile at call time — what you auditioned is what plays.
+// Re-exported here so call sites (host page, lab) import from one place.
+export {
+  getVoiceProfile,
+  applyVoiceProfile,
+  resetVoiceProfile,
+  exportVoiceProfile,
+  importVoiceProfile,
+  saveVoiceProfile,
+  hasSavedVoiceProfile,
+  voiceLabel,
+} from "./voiceProfile";
+export type { VoiceProfile } from "./voiceProfile";
+
 function gated(): boolean {
   if (typeof window === "undefined") return false;
   if (!unlocked) return false;
@@ -168,11 +187,13 @@ if (typeof window !== "undefined" && "speechSynthesis" in window) {
 
 // --- Clause chunker ---------------------------------------------------------
 // speechSynthesis ignores SSML, so cadence comes from structure: split the
-// line into clause utterances with tuned gaps. "..." → 350ms, " — " → 220ms,
-// "[beat]" → 450ms before the punchline clause.
+// line into clause utterances with tuned gaps. Gap values come from the
+// voice profile (Voice Lab sliders): "..." → pauseDots, " — " → pauseDash,
+// "[beat]" → pauseBeat before the punchline clause, clause base → pauseClause.
 type Chunk = { text: string; pauseAfter: number };
 
 export function chunkLine(line: string): Chunk[] {
+  const prof: VoiceProfile = getVoiceProfile();
   const out: Chunk[] = [];
   // [beat] is a hard pause marker, not spoken.
   const beats = line.split("[beat]");
@@ -184,20 +205,20 @@ export function chunkLine(line: string): Chunk[] {
       const clauses = d.split(/\s+[—–-]\s+|\s+—\s+/).map((c) => c.trim()).filter(Boolean);
       if (!clauses.length) {
         if (di < dots.length - 1) {
-          if (out.length) out[out.length - 1].pauseAfter = Math.max(out[out.length - 1].pauseAfter, 350);
-          else out.push({ text: "", pauseAfter: 350 });
+          if (out.length) out[out.length - 1].pauseAfter = Math.max(out[out.length - 1].pauseAfter, prof.pauseDots);
+          else out.push({ text: "", pauseAfter: prof.pauseDots });
         }
         return;
       }
       clauses.forEach((c, ci) => {
-        let pause = 120; // base clause gap keeps the nerd clip
-        if (ci < clauses.length - 1) pause = 220;
-        if (di < dots.length - 1 && ci === clauses.length - 1) pause = 350;
+        let pause = prof.pauseClause;
+        if (ci < clauses.length - 1) pause = prof.pauseDash;
+        if (di < dots.length - 1 && ci === clauses.length - 1) pause = prof.pauseDots;
         out.push({ text: c, pauseAfter: pause });
       });
     });
     if (bi < beats.length - 1 && out.length) {
-      out[out.length - 1].pauseAfter = Math.max(out[out.length - 1].pauseAfter, 450);
+      out[out.length - 1].pauseAfter = Math.max(out[out.length - 1].pauseAfter, prof.pauseBeat);
     }
   });
   return out.filter((c) => c.text.length > 0);
@@ -276,15 +297,23 @@ async function runKokoro(line: string, type: LineType, token: number): Promise<v
     if (mod.isKokoroReady()) kokoroIsReady = true;
   } catch {}
   kokoroPlaying = true;
+  let spoke = false;
   try {
-    await mod.playKokoroLine(line, type, () => token !== speechToken);
-  } catch {}
+    spoke = await mod.playKokoroLine(line, type, () => token !== speechToken);
+  } catch {
+    spoke = false;
+  }
   kokoroPlaying = false;
   if (token !== speechToken) {
     pumpFifo();
     return;
   }
-  // Gen failed silently inside: fall back to Tier 1 for this line only.
+  if (!spoke) {
+    // Kokoro produced nothing audible: Tier 1 for this line so the game
+    // never goes mute (warmup window, locked AudioContext, gen fail).
+    runTier1(line, type, token);
+    return;
+  }
   finish(token);
   pumpFifo();
 }
@@ -309,6 +338,12 @@ function runTier1(line: string, type: LineType, token: number): boolean {
     return false;
   }
   const preset = PRESETS[type];
+  // Profile override (Voice Lab "Apply to fallback voice too"): shifts the
+  // Tier-1 rate toward the setup speed + clamps pitch, so a tuned delivery
+  // roughly survives the fallback. null = stock engine presets.
+  const override = getVoiceProfile().tier1;
+  const rate = override ? preset.rate * (override.rate / 1.05) : preset.rate;
+  const pitch = override ? Math.min(2, Math.max(0, preset.pitch * (override.pitch / 0.95))) : preset.pitch;
   const chunks = chunkLine(line);
   if (!chunks.length) {
     finish(token);
@@ -326,8 +361,8 @@ function runTier1(line: string, type: LineType, token: number): boolean {
     const chunk = chunks[i++];
     try {
       const u = new SpeechSynthesisUtterance(chunk.text);
-      u.rate = preset.rate;
-      u.pitch = preset.pitch;
+      u.rate = rate;
+      u.pitch = pitch;
       u.volume = preset.vol;
       if (voice) u.voice = voice;
       u.onend = () => {

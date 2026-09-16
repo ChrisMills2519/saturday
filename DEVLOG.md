@@ -373,3 +373,44 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 - Voice previews for deciding (unchanged weights): official demo https://huggingface.co/spaces/hexgrad/Kokoro-TTS, compare https://terokarvinen.com/kokoro-foss-tts-voice-comparison/, samples https://rewind.ai/voices/.
 
 **Verified:** `npm run typecheck` clean, `npm run build` green (host 13.9 kB). Mental smoke: LOBBY savage cold open → INPUT sting + challenge → stall names straggler → REVEAL/ VOTE/SCORE unchanged.
+
+## 2026-09-16 — Voice personality rescue (rules + delivery)
+
+**Why flat:** 3 subagent crews found the engine flattening itself: (1) hype `?→...` rewrite turned every interrogative mic-drop declarative; (2) sting→prompt estimateMs chain let the prompt steal/cut the sting under Kokoro WASM latency; (3) REVEAL walk read answers verbatim with zero reaction; (4) Tier-1 presets over-dipped (punchline 0.75 pitch, aside 0.7 vol); (5) Kokoro has no pitch knob — only speed + punctuation; (6) warmup-window games ran entirely on flat Tier-1, and Kokoro gen-fail dropped lines silently; (7) sticky winner + estimateMs ate SCORE extras. House rules helped cause it: 100% `?` law + never-teach + never-name produced announcements with question tags.
+
+**What changed:**
+- Rules: `hostPersonality` header rewritten (savage Emma performs, questions-where-funny, may name, roasts logic hard, one sting on shutouts); `hostCopy` header lets voice teach rules as jokes; `AGENTS.md` gains Voice load-bearing section (Emma-only, personality law lives in hostPersonality header).
+- No more flattening: `prosodyText` `?→...` deleted; speeds pulled to 0.92–1.08 (Kokoro) + Tier-1 presets un-dived (punchline 0.9, aside 0.85 vol).
+- No more steals: `sayInputPrompt`/`sayQuizQuestion` bundle sting + prompt/question in ONE utterance; `sayQuizAnswer` bundled too.
+- No more drops: `speakWhenFree` polls real channel silence (15s cap) for `scoreExtras`/`score_award`/`sayQuizAnswer`; `playKokoroLine` returns spoke-bool and `runKokoro` falls back to Tier-1 audibly on failure.
+- Reactions: `sayAnswer` appends an anti-repeat reaction button (`Explain yourself. / Bold. Wrong, but bold. / ...`) in the same utterance.
+
+**Verified:** `typecheck` clean, `build` green (host 14.2 kB). Needs human ear pass: questions should rise, stings uncut, cards get buttons, SCORE extras audible.
+
+## 2026-09-16 — Jackbox host flow Phase 1 (TV runs itself after Start)
+
+**Why:** host screen was a control panel (Reveal / Start voting / Show scores / Next round = 4 clicks/round). Jackbox bar: Start once, put the remote down.
+
+**What changed:**
+- Server: new `revealSeconds(count)` (`lib/gameEngine.ts` = max(7, 1.5 + 2.3*n), matches card-slam cadence). `next` entering REVEAL now sets `ends_at` instead of null (submission-counted); `submit` all-in flip does the same. `next` also passes `room.game_type` to `canTransition()`. SCORE stays manual (Phase 2, quiz `400` trap untouched).
+- Host timer (`app/host/[code]/page.tsx`): REVEAL→VOTE fires at `left===0` for ALL game types (quiz-classic-only guard deleted); thin-round stall (`submitted<2` / `totalVotes<1` → prompt + park) replaced with advance-anyway — empty rounds march, never park.
+- Host UI: deleted INPUT Reveal, REVEAL Start-voting (+ Show-all), VOTE Show-scores buttons. Kept: Start, rounds stepper, game pickers, extend/kick (moderation), sound/voice, all SCORE buttons (incl. non-final Next round = the 1 remaining click/round).
+- Emergency hatch: 800ms long-press on the room code toggles a hidden override panel (Skip phase → / +30s / Hide). No visible affordance, EMERGENCY ONLY.
+- Accepted limitation (documented, not fixed): TV tab must stay open — the host timer is the only fallback, no server ticks. Lid closed = game stalls.
+
+**Verified:** `npm run typecheck` clean, `npm run build` green (host 14.3 kB). Mental smoke: 2-tab submit → instant REVEAL with ends_at → auto VOTE → votes → SCORE → hand-rolled Next round. Needs living-room pass: REVEAL dwell with real answer counts, thin-round feel, hatch long-press once.
+
+## 2026-09-16 — Voice Lab (`/voicelab`): tune the host voice, export the profile
+
+**Why:** "how can I tweak Kokoro's voice for personality" had no answer short of editing three files and rebuilding. Voice id, per-line-type gen speeds and pause gaps were hardcoded, so every experiment cost a code change and a `build` — and nothing let you hear it before committing.
+
+**What changed:**
+- New `lib/voiceProfile.ts` — the delivery contract: `voice` (10 Kokoro ids, `VOICE_CHOICES`), per-line-type `speeds` (setup/punchline/aside/roast/hype, clamped 0.5–2.0), four pause gaps (`pauseClause` 120 / `pauseDash` 220 / `pauseDots` 350 / `pauseBeat` 450 ms), optional `tier1` rate/pitch override for the fallback voice. Stored at `saturday:voiceProfile:v1`; every field sanitized + clamped on load/import (hostile or corrupt JSON can't break the game). Exports/imports as plain JSON. Drafts live in an in-memory `setVoiceProfileOverride()` so the lab is non-destructive — only "Save to game" (`applyVoiceProfile`, which also evicts the Kokoro gen buffer cache) commits.
+- Engine reads it at call time: `lib/voiceKokoro.ts` gets voice + speed from the profile (was `bf_emma` + a hardcoded speed map), `lib/voice.ts` `chunkLine` gets its pause gaps from it (shared by Kokoro and Tier 1, so both stay in step). Identical defaults to the current tuning, so nothing changes until someone tunes it.
+- New `app/voicelab/page.tsx` (host-side, laptop only, zero Supabase): preset statement per line type, one big Audition (+ per-type A/B buttons), voice picker, speed + pause sliders with live values, optional fallback-voice override, and Save / Hear saved / Revert / Reset-to-Emma alongside a copyable + downloadable JSON block and a paste-to-load import. Spec sheets note where each knob lives, and that the neural model only loads on warmup (`warming… %` shown).
+- Host lobby: status line now names the saved voice (`Voice: <name> (savage)`) and links to `/voicelab`.
+- `AGENTS.md` voice rule amended: still one voice + no in-room picker, but tuning is explicitly out-of-band at `/voicelab` via the profile — future agents add knobs to the profile instead of hardcoding voices/speeds.
+
+**Verified:** `npm run typecheck` clean; `npm run build` green (host 12.9 kB, new `/voicelab` 7.65 kB static, play page unchanged — 0 kokoro refs). `next start` smoke: `/`, `/voicelab`, `/host/ZZZ9`, `/play/ZZZ9` all 200; `/voicelab` HTML carries the voice/speed/save sections; the profile key + Voice Lab link land in the host chunk. Needs a human ear pass on the TV: does the draft audition match what the game speaks after Save, and does a voice swap survive a reload.
+
+**What's next:** preset profile bundles ("posh sneer" / "deadpan" / "museum guide") so a tuned delivery is one click instead of 15 sliders; keep the exported JSON beside the repo for the next TV.

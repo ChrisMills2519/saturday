@@ -3,7 +3,7 @@
 // Rules: roast answers + the room, never the person (see hostPersonality).
 // User text is sanitized before speech: collapsed, URL-stripped, capped.
 
-import { speak, cancelVoice, type SpeakOpts, type SarcasmMode, type LineType } from "./voice";
+import { speak, cancelVoice, isSpeaking, type SpeakOpts, type SarcasmMode, type LineType } from "./voice";
 import { pickLine, type Slot } from "./hostPersonality";
 import { collapseSpaces } from "./gameEngine";
 
@@ -98,10 +98,47 @@ export function saySlot(slot: Slot, mode: SarcasmMode, used: Set<string>): boole
   return speak(v.text, { type: v.type, priority: slotPriority(slot) });
 }
 
+/** Slot queued behind real channel silence (SCORE awards behind the winner). */
+export function saySlotFree(
+  slot: Slot,
+  mode: SarcasmMode,
+  used: Set<string>,
+  waitMs = 0,
+): void {
+  const v = pickLine(slot, mode, used);
+  speakWhenFree(v.text, v.type, slotPriority(slot), waitMs);
+}
+
 /**
- * Speak one revealed answer card. Text answers read verbatim (sanitized);
- * drawings get a personality aside instead. Priority 5: a new card preempts
- * a pending one-liner, but never a phase opener already talking.
+ * Post-answer reaction buttons: roast the answer's LOGIC, never the author.
+ * Bundled into the same utterance as the read so one synth call carries one
+ * full joke (no inter-call steal, no extra slam-cadence pressure).
+ */
+const REACTIONS = [
+  "Explain yourself.",
+  "Seriously? Say it with confidence.",
+  "Bold. Wrong, but bold.",
+  "Who hurt you?",
+  "That is certainly an answer.",
+  "Read that back to yourself. Out loud.",
+  "Confident. Incorrect energy, but confident.",
+  "Someone believed that while typing it?",
+];
+
+function pickReaction(used: Set<string>): string {
+  const fresh = REACTIONS.filter((r) => !used.has(`react:${r}`));
+  const pool = fresh.length ? fresh : REACTIONS;
+  if (!fresh.length) for (const r of REACTIONS) used.delete(`react:${r}`);
+  const text = pool[Math.floor(Math.random() * pool.length)];
+  used.add(`react:${text}`);
+  return text;
+}
+
+/**
+ * Speak one revealed answer card: read verbatim (sanitized) + reaction
+ * button in the SAME utterance. Drawings get a personality aside instead.
+ * Priority 5: a new card preempts a pending one-liner, but never a phase
+ * opener already talking.
  */
 export function sayAnswer(
   sub: SubmissionLike,
@@ -121,39 +158,59 @@ export function sayAnswer(
   }
   // Number the walk so the room can follow along: "Number three... <answer>."
   const prefix = total > 1 ? `Number ${index + 1}... ` : "";
-  return speak(`${prefix}${clean}`, { type: "setup", priority: 5 });
+  const reaction = pickReaction(used);
+  return speak(`${prefix}${clean}... [beat] ${reaction}`, { type: "setup", priority: 5 });
 }
 
-/** Score extras: shutout / unanimous, spoken after the winner line. * leadMs should be the winner line's estimated speech time so extras
- * don't collide with the sticky mic-drop (they'd lose priority and drop). */
+/** Speak when the channel is free: polls isSpeaking instead of trusting
+ * estimateMs (Kokoro WASM gen latency is seconds, not chars/sec). Gives up
+ * after ~15s so a stuck channel can't backlog the game. */
+function speakWhenFree(text: string, type: LineType, priority: number, waitMs = 0): void {
+  const start = Date.now();
+  const tick = () => {
+    if (Date.now() - start > 15000) return;
+    if (Date.now() - start < waitMs) {
+      setTimeout(tick, 250);
+      return;
+    }
+    if (isSpeaking()) {
+      setTimeout(tick, 500);
+      return;
+    }
+    speak(text, { type, priority });
+  };
+  setTimeout(tick, 250);
+}
+
+/** Score extras: shutout / unanimous, spoken after the winner line. Waits
+ * for real channel silence (not estimateMs) so the sticky mic-drop can't
+ * swallow them. */
 export function scoreExtras(
   subs: SubmissionLike[],
   mode: SarcasmMode,
   used: Set<string>,
   leadMs = 3500,
 ): void {
-  let delay = leadMs;
-  const queue = (text: string, type: LineType) => {
-    const d = delay;
-    delay += 4000;
-    setTimeout(() => speak(text, { type, priority: 4 }), d);
+  const queue = (text: string, type: LineType, extraWait: number) => {
+    speakWhenFree(text, type, 4, leadMs + extraWait);
   };
   const shutout = subs.find((s) => (s.votes ?? 0) === 0);
   if (shutout && subs.length >= 2) {
     const v = pickLine("score_shutout", mode, used);
-    queue(v.text, v.type);
+    queue(v.text, v.type, 0);
   }
   const top = subs.reduce<SubmissionLike | null>((b, s) => (!b || (s.votes ?? 0) > (b.votes ?? 0) ? s : b), null);
   if (top && (top.votes ?? 0) >= 2 && subs.length >= 3) {
     const v = pickLine("score_unanimous", mode, used);
     // Only call it unanimous-ish; the picker copy hedges honestly.
-    queue(v.text, v.type);
+    queue(v.text, v.type, 4000);
   }
 }
 
 /**
- * Quiz REVEAL entry: sting + the question read aloud, chained so the card
- * lands visually first. Priority 10 like other phase openers.
+ * Quiz REVEAL entry: sting + question in ONE utterance so the second half
+ * can't steal the channel mid-sting (the old estimateMs chain cut the joke
+ * whenever Kokoro gen lagged). Priority 10 like other phase openers.
  */
 export function sayQuizQuestion(
   question: string | null,
@@ -161,17 +218,13 @@ export function sayQuizQuestion(
   used: Set<string>,
 ): boolean {
   const sting = pickLine("quiz_question", mode, used);
-  speak(sting.text, { type: sting.type, priority: 10 });
   const clean = sanitizeForSpeech(question);
-  if (!clean) return true;
-  const id = setTimeout(() => speak(clean, { type: "setup", priority: 10 }), estimateMs(sting.text));
-  void id;
-  return true;
+  if (!clean) return speak(sting.text, { type: sting.type, priority: 10 });
+  return speak(`${sting.text}... [beat] ${clean}`, { type: sting.type, priority: 10 });
 }
 
 /**
- * INPUT entry for text/draw/bluff: savage sting + the challenge read aloud,
- * chained like the quiz question. Priority 10 like other phase openers.
+ * INPUT entry for text/draw/bluff: savage sting + challenge in ONE utterance.
  * Bluff-safe: the prompt is the QUESTION — the hidden truth row is never
  * spoken here (REVEAL walk teases it instead).
  */
@@ -181,12 +234,9 @@ export function sayInputPrompt(
   used: Set<string>,
 ): boolean {
   const sting = pickLine("input_opener", mode, used);
-  speak(sting.text, { type: sting.type, priority: 10 });
   const clean = sanitizeForSpeech(prompt);
-  if (!clean) return true;
-  const id = setTimeout(() => speak(clean, { type: "setup", priority: 10 }), estimateMs(sting.text));
-  void id;
-  return true;
+  if (!clean) return speak(sting.text, { type: sting.type, priority: 10 });
+  return speak(`${sting.text}... [beat] ${clean}`, { type: sting.type, priority: 10 });
 }
 
 /**
@@ -207,8 +257,8 @@ export function sayStall(
 }
 
 /**
- * Quiz SCORE reveal: correct/nobody line + the answer read aloud.
- * Call with a base delay (winner mic-drop length) so it never collides.
+ * Quiz SCORE reveal: verdict + answer in ONE utterance, waiting for real
+ * channel silence behind the winner mic-drop (never collides, never cut).
  */
 export function sayQuizAnswer(
   correctText: string | null,
@@ -220,10 +270,7 @@ export function sayQuizAnswer(
   const slot = anyoneRight ? "quiz_correct" : "quiz_nobody_right";
   const v = pickLine(slot, mode, used);
   const clean = sanitizeForSpeech(correctText);
-  const id = setTimeout(() => {
-    speak(v.text, { type: v.type, priority: 5 });
-    if (clean) setTimeout(() => speak(clean, { type: "setup", priority: 5 }), estimateMs(v.text));
-  }, delayMs);
-  void id;
+  const line = clean ? `${v.text}... [beat] ${clean}` : v.text;
+  speakWhenFree(line, v.type, 5, delayMs);
   return true;
 }

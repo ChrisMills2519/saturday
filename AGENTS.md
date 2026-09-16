@@ -22,6 +22,12 @@ Jackbox-style family party game. Laptop browser = TV host screen (`/host/[code]`
 - `app/api/rooms/route.ts` + `app/api/rooms/[code]/{route,join,start,submit,vote,next}/route.ts`
 - `lib/{gameEngine,supabase,realtime,roomService}.ts` | `supabase/schema.sql` | `README.md` | `DEVLOG.md`
 
+## Voice (load-bearing)
+- One voice for the whole game: savage Emma (`bf_emma`) as shipped. No Family/Savage toggle in the game UI, no in-room voice picker. In-game status stays a single line ("Voice: <name> (savage) — ready/warming…").
+- Tuning happens OUT of band, on the host laptop, at `/voicelab`: voice id + per-line-type gen speeds + pause gaps + optional Tier-1 override, saved to `localStorage` via `lib/voiceProfile.ts` (`saturday:voiceProfile:v1`), exportable as JSON. The engine reads that profile at call time (`chunkLine` gaps, Kokoro voice/speeds) — never hardcode a voice or speed again; add the knob to the profile instead.
+- The lab edits drafts in an in-memory override (`setVoiceProfileOverride`); only "Save to game" (`applyVoiceProfile`) commits. Never write the profile during render, never read `localStorage` during render (hydration).
+- Personality law lives in `lib/hostPersonality.ts` header — future agents: obey it, don't re-litigate it.
+
 ## Never do
 - Never commit `.env.local` or any secret; never add `NEXT_PUBLIC_` to the service_role key; never paste secrets in chat/logs.
 - Never read tables directly from browser code (`from("rooms")` etc. belongs in API routes + `roomService.ts` only).
