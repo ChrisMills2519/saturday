@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
-import { UNANIMOUS_BONUS, voteWorth, isCleanSweep } from "@/lib/gameEngine";
+import { UNANIMOUS_BONUS, voteWorth, isCleanSweep, quizCorrectWorth, quizSpeedBonus, quizFinderWorth } from "@/lib/gameEngine";
+import { parseQuizState, isHouseSession, QUIZ_TRUTH_SESSION } from "@/lib/quiz";
 import { supabaseAdmin, broadcastRoom } from "@/lib/supabase";
 import { getSnapshot, bumpSeq } from "@/lib/roomService";
 
 // One voter = one vote per round. Votes tallied blind (hidden until SCORE).
 // Scoring: +100 per vote (final round 2x) + unanimous kicker.
+// Quiz fork: choices/truth live in house submissions (quiz:*). Classic awards
+// the VOTER for picking correctly (+speed kicker for first correct); bluff
+// awards the voter a finder bonus for spotting the truth. House rows never
+// earn author-points and quiz rounds skip the unanimous kicker.
 // Auto-advances VOTE→SCORE when every player has voted.
 // Scores keyed by session_id; legacy name-keyed scores migrate lazily.
 export async function POST(req: Request, { params }: { params: { code: string } }) {
@@ -34,6 +39,11 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     .single();
   if (!sub) return NextResponse.json({ error: "no submission" }, { status: 404 });
 
+  const qs = parseQuizState(room);
+  const quizRound =
+    (room.game_type === "quiz-classic" || room.game_type === "quiz-bluff") && qs !== null;
+  const quizHouseVote = quizRound && qs !== null && isHouseSession(target_session);
+
   // Single-vote guard.
   try {
     const { error: voteErr } = await admin.from("votes").insert({
@@ -62,7 +72,31 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   const rr = (room.current_round ?? 0);
   const tr = (room.total_rounds as number | null) ?? 3;
   const isFinal = rr >= tr;
-  const pts = voteWorth(totalPlayers, isFinal);
+
+  // Winner of the points: normally the submission's author; quiz house votes
+  // pay the voter instead (classic correct pick / bluff truth spot).
+  let awardSession: string | null = target_session;
+  let awardPts = voteWorth(totalPlayers, isFinal);
+  if (quizHouseVote && qs) {
+    if (room.game_type === "quiz-classic" && target_session === qs.correct_session) {
+      const { count: correctVotes } = await admin
+        .from("votes")
+        .select("id", { count: "exact", head: true })
+        .eq("room_code", code)
+        .eq("round", rr)
+        .eq("target_session", qs.correct_session);
+      awardSession = session_id;
+      awardPts =
+        quizCorrectWorth(totalPlayers, isFinal) + (correctVotes === 1 ? quizSpeedBonus(isFinal) : 0);
+    } else if (room.game_type === "quiz-bluff" && target_session === QUIZ_TRUTH_SESSION) {
+      awardSession = session_id;
+      awardPts = quizFinderWorth(isFinal);
+    } else {
+      // Wrong classic pick: vote counts toward completion, earns nothing.
+      awardSession = null;
+      awardPts = 0;
+    }
+  }
 
   // Read current scores fresh to minimize race window on score accumulation.
   const { data: freshRoom } = await admin.from("rooms").select("scores,round_history").eq("code", code).single();
@@ -73,14 +107,14 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     const sid = byName.has(k) ? (byName.get(k) as string) : k;
     scores[sid] = (scores[sid] ?? 0) + (v ?? 0);
   }
-  scores[target_session] = (scores[target_session] ?? 0) + pts;
+  if (awardSession) scores[awardSession] = (scores[awardSession] ?? 0) + awardPts;
 
   // Per-round delta for phone history + host MVP.
   const rhRaw = ((freshRoom as Record<string, unknown>)?.round_history as Record<string, Record<string, number>> | null) ?? {};
   const roundHist: Record<string, Record<string, number>> = typeof rhRaw === "object" && !Array.isArray(rhRaw) ? { ...rhRaw } : {};
   const key = String(rr);
   roundHist[key] = { ...(roundHist[key] ?? {}) };
-  roundHist[key][target_session] = (roundHist[key][target_session] ?? 0) + pts;
+  if (awardSession) roundHist[key][awardSession] = (roundHist[key][awardSession] ?? 0) + awardPts;
 
   const roomPatch: Record<string, unknown> = { scores };
   let rhApplied = false;
@@ -93,7 +127,9 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   if (!rhApplied) await admin.from("rooms").update(roomPatch).eq("code", code);
 
   // Re-read voted count; if everyone has voted, flip to SCORE (clears clock).
-  // At that moment award unanimous bonus to the winner if needed.
+  // At that moment award unanimous bonus to the winner if needed (bluff/text
+  // only — quiz rounds have their own speed/finder kickers, and the top row
+  // may be a scoreless house row).
   try {
     const { data: rowsRaw } = await admin.from("submissions").select("votes,player_session").eq("room_code", code).eq("round", rr);
     type VoteRow = { votes: number | null; player_session: string };
@@ -103,7 +139,7 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     if (enoughVotable && voted >= totalPlayers) {
       // unanimous: one answer has all votes
       const maxRow = rows.reduce<VoteRow | null>((m, r) => (!m || (r.votes ?? 0) > (m.votes ?? 0) ? r : m), null);
-      if (maxRow && isCleanSweep(maxRow.votes ?? 0, totalPlayers)) {
+      if (maxRow && !quizRound && isCleanSweep(maxRow.votes ?? 0, totalPlayers)) {
         // Re-read fresh scores to avoid double-counting the bonus under concurrency.
         const { data: fresh2 } = await admin.from("rooms").select("scores, round_history").eq("code", code).single();
         const curScores = (fresh2?.scores as Record<string, number> | null) ?? scores;

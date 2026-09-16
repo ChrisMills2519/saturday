@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase";
+import { parseQuizState, isHouseSession } from "@/lib/quiz";
 
 // Atomic monotonic bump per mutation via SQL function.
 // Prevents lost increments under concurrent mutations (two players
@@ -29,6 +30,9 @@ export async function getSnapshot(code: string) {
     .eq("room_code", code)
     .eq("round", room.current_round);
   const rows = submissions ?? [];
+  // House rows (quiz:* choices/truth) are votable options, not players:
+  // they never count toward "who submitted" but their votes count toward
+  // completion like any other row.
   // Blind INPUT: roster sees WHO locked in (player_session) but never
   // WHAT (text/image). Kills devtools spoilers; server-enforced.
   // Blind VOTE: answers are visible (that's the point of voting) but
@@ -42,6 +46,7 @@ export async function getSnapshot(code: string) {
       ? rows.map((s) => ({ ...s, votes: 0 }))
       : rows;
   const voted = rows.reduce((n, s) => n + (s.votes ?? 0), 0);
+  const playerRows = rows.filter((s) => !isHouseSession(s.player_session));
   // Who-voted-for-who is only exposed at SCORE (VOTE stays blind). Powers the
   // TV "who picked what" recap + awards without leaking live tallies.
   let votesDetail: { voter_session: string; target_session: string }[] = [];
@@ -54,6 +59,17 @@ export async function getSnapshot(code: string) {
     votesDetail = (voteRows ?? []) as { voter_session: string; target_session: string }[];
   }
   const inputTotal = (room.input_total as number | null) ?? null;
+  // Quiz answer key: the correct house session stays server-side until SCORE
+  // (same philosophy as blind INPUT/VOTE). Choices themselves ride along in
+  // submissions like normal rows; sessions[] lets the UI badge A–D in order.
+  const qState = parseQuizState(room);
+  const quiz =
+    qState !== null
+      ? {
+          correct_session: room.phase === "SCORE" ? qState.correct_session : null,
+          sessions: (qState.choices ?? []).map((_, i) => `quiz:${"ABCD"[i]}`),
+        }
+      : null;
   // Denominator during INPUT/VOTE should be the frozen input_total when present,
   // but keep live total for LOBBY/SCORE so rematch/join counts feel immediate.
   const denom = (room.phase === "INPUT" || room.phase === "VOTE") && inputTotal != null ? inputTotal : (players ?? []).length;
@@ -72,8 +88,9 @@ export async function getSnapshot(code: string) {
     seq: room.seq ?? 0,
     players: players ?? [],
     submissions: subs,
-    counts: { submitted: rows.length, voted, total: denom, input_total: inputTotal },
+    counts: { submitted: playerRows.length, voted, total: denom, input_total: inputTotal },
     scores: voteBlind ? {} : (room.scores ?? {}),
+    quiz,
     votes_detail: votesDetail,
     round_history: safeMap((room as unknown as Record<string, unknown>).round_history),
     used_prompts: safeArray((room as unknown as Record<string, unknown>).used_prompts),

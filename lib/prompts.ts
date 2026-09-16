@@ -6,6 +6,7 @@
 export * from "@/lib/prompts_text";
 export * from "@/lib/prompts_draw";
 export * from "@/lib/prompts_quiz";
+export * from "@/lib/quiz";
 
 // Back-compat helpers that keep the old call shape (string) while new
 // callers use the richer PromptCard type.

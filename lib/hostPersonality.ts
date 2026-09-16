@@ -29,7 +29,11 @@ export type Slot =
   | "score_winner"
   | "score_shutout" // an answer got 0 votes — gentle in both modes
   | "score_unanimous"
-  | "score_award";
+  | "score_award"
+  | "quiz_question" // sting before the question is read (classic + bluff REVEAL)
+  | "quiz_correct" // someone nailed it — before the answer is read
+  | "quiz_nobody_right" // zero correct picks — gentle, knowledge is hard
+  | "quiz_bluff_sting"; // tease instead of reading the hidden truth aloud
 
 const FAMILY: Record<Slot, string[]> = {
   lobby_cold_open: [
@@ -87,6 +91,22 @@ const FAMILY: Record<Slot, string[]> = {
     "House awards... [beat] who earned a title nobody asked for?",
     "Bonus titles... whose consolation prize is this?",
   ],
+  quiz_question: [
+    "Trivia time... [beat] who's actually been paying attention?",
+    "Question's up... so who here knows things?",
+  ],
+  quiz_correct: [
+    "The answer was... did anyone actually know that?",
+    "Correct answer's in... whose brain just earned its keep?",
+  ],
+  quiz_nobody_right: [
+    "Nobody got it... how are we feeling about that?",
+    "Zero correct... [beat] who else is rethinking everything?",
+  ],
+  quiz_bluff_sting: [
+    "One of these is true... the rest are lies — whose nose is growing?",
+    "Real answer hiding among fakes... can anyone smell the truth?",
+  ],
 };
 
 const SAVAGE: Record<Slot, string[]> = {
@@ -96,7 +116,7 @@ const SAVAGE: Record<Slot, string[]> = {
   ],
   lobby_ready: [
     "Oh good, enough people... so whose fault will it be when this goes sideways?",
-    "Two players... each backing the other — whose rivalry is this?",
+    "Two players... each voting for the other out of pity — whose charity case is this?",
   ],
   input_opener: [
     "Prompt's live... read it twice, I know that's a big ask — but what have you got?",
@@ -122,11 +142,11 @@ const SAVAGE: Record<Slot, string[]> = {
   ],
   reveal_drawing: [
     "Next... a drawing — fridge-worthy, or... whose toddler did this?",
-    "A visual... hmm... [beat] what was the artist thinking — anyone?",
+    "A visual... hmm... [beat] which one of you is calling THAT art?",
   ],
   vote_opener: [
     "Ballots are live — choosing between these... whose headache is your favorite?",
-    "So many options... whose brilliance are you about to reward?",
+    "So many options... [beat] which one sucks the least?",
   ],
   score_winner: [
     "Winner crowned... [beat] who saw that coming — honestly?",
@@ -143,6 +163,22 @@ const SAVAGE: Record<Slot, string[]> = {
   score_award: [
     "House awards — for those who couldn't win properly... whose consolation is this?",
     "Consolation titles... points weren't humiliating enough — whose name is next?",
+  ],
+  quiz_question: [
+    "Trivia... finally something facts can win — whose memory is showing up?",
+    "Question's live... easy one, allegedly — who's about to embarrass themselves?",
+  ],
+  quiz_correct: [
+    "Answer revealed... did anyone get it, or was that collective guessing?",
+    "There it is... whose lucky guess just paid off?",
+  ],
+  quiz_nobody_right: [
+    "Nobody... not one correct — whose education failed hardest?",
+    "Zero right... impressive, honestly — whose confidence survived?",
+  ],
+  quiz_bluff_sting: [
+    "One truth, rest fiction... this group lies how well?",
+    "Spot the truth among the lies... whose poker face is worst?",
   ],
 };
 
@@ -164,6 +200,10 @@ const LINE_TYPE: Record<Slot, LineType> = {
   score_shutout: "punchline",
   score_unanimous: "hype",
   score_award: "aside",
+  quiz_question: "setup",
+  quiz_correct: "punchline",
+  quiz_nobody_right: "punchline",
+  quiz_bluff_sting: "setup",
 };
 
 /**

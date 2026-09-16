@@ -82,8 +82,9 @@ import {
   type SarcasmMode,
 } from "@/lib/voice";
 import { getKokoroVoice, setKokoroVoice, type KokoroVoiceId } from "@/lib/voiceKokoro";
-import { phaseLine, saySlot, sayAnswer, scoreExtras, shutUp, estimateMs } from "@/lib/hostLines";
-import { isFinalRound, MAX_PLAYERS } from "@/lib/gameEngine";
+import { phaseLine, saySlot, sayAnswer, sayQuizQuestion, sayQuizAnswer, scoreExtras, shutUp, estimateMs } from "@/lib/hostLines";
+import { isFinalRound, MAX_PLAYERS, type GameType } from "@/lib/gameEngine";
+import { isHouseSession, letterForSession } from "@/lib/quiz";
 import type { Phase } from "@/app/preview/HumanoidWalker";
 
 const PHASE_STATUS: Record<Phase, string> = {
@@ -262,7 +263,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
     pregenVoice(lines);
   }, [room?.phase, room?.current_round, kokoroOn, kokoroIsReady]);
   const [rounds, setRounds] = useState(3);
-  const [gameType, setGameType] = useState<"text" | "draw">("text");
+  const [gameType, setGameType] = useState<GameType>("text");
   const [customPrompt, setCustomPrompt] = useState("");
   const [startErr, setStartErr] = useState<string | null>(null);
   const [actionErr, setActionErr] = useState<string | null>(null);
@@ -368,7 +369,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
   useEffect(() => {
     setRevealed(0);
     setTallyShown(false);
-    setTimerTotal(room?.phase === "VOTE" ? 30 : 60);
+    setTimerTotal(room?.phase === "VOTE" ? 30 : room?.phase === "REVEAL" && room?.game_type === "quiz-classic" ? 15 : 60);
   }, [room?.phase, room?.current_round]);
 
   // Auto-slam the next answer card while REVEAL is on screen (host can also tap).
@@ -479,6 +480,18 @@ export default function HostPage({ params }: { params: { code: string } }) {
         const id = setTimeout(() => saySlot("score_award", sarcasm, usedLines.current), leadMs + 8000);
         extrasTimers.current.push(id);
       }
+      // Quiz answer reveal: correct/nobody line + answer, behind the winner.
+      if (room.quiz?.correct_session) {
+        const correct = room.submissions.find((s) => s.player_session === room.quiz?.correct_session);
+        const anyoneRight = (correct?.votes ?? 0) > 0;
+        sayQuizAnswer(correct?.text_content ?? null, anyoneRight, sarcasm, usedLines.current, leadMs + 4000);
+      }
+      return;
+    }
+    // Quiz REVEAL: sting + question read-aloud replaces the generic opener.
+    if (room.phase === "REVEAL" && (room.game_type === "quiz-classic" || room.game_type === "quiz-bluff")) {
+      shutUp();
+      sayQuizQuestion(room.prompt, sarcasm, usedLines.current);
       return;
     }
     shutUp();
@@ -494,10 +507,14 @@ export default function HostPage({ params }: { params: { code: string } }) {
     const sub = room.submissions[revealed - 1];
     if (!sub) return;
     // Small pre-beat so the card lands visually first.
-    const id = setTimeout(
-      () => sayAnswer(sub, sarcasm, usedLines.current, revealed - 1, room.submissions.length),
-      250
-    );
+    const id = setTimeout(() => {
+      // Bluff truth row: tease, never read the answer aloud before voting.
+      if (room.game_type === "quiz-bluff" && isHouseSession(sub.player_session)) {
+        saySlot("quiz_bluff_sting", sarcasm, usedLines.current);
+        return;
+      }
+      sayAnswer(sub, sarcasm, usedLines.current, revealed - 1, room.submissions.length);
+    }, 250);
     return () => clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealed, room?.phase, soundOn, muted, voiceOn, sarcasm]);
@@ -572,12 +589,23 @@ export default function HostPage({ params }: { params: { code: string } }) {
   }
 
   // Auto-advance INPUT -> REVEAL and VOTE -> SCORE when the timer expires.
-  // Server clears ends_at on the destination phase, so left hits 0 once.
+  // Quiz-classic opens in REVEAL (read window), so its clock marches
+  // REVEAL -> VOTE instead. Server clears ends_at on the destination phase,
+  // so left hits 0 once.
   // Guard: empty rounds don't march themselves. If nothing was submitted/voted,
   // surface a prompt to the host instead of advancing into a content-less phase.
   useEffect(() => {
     if (!room || left !== 0) return;
-    if (room.phase !== "INPUT" && room.phase !== "VOTE") return;
+    if (room.phase !== "INPUT" && room.phase !== "VOTE" && room.phase !== "REVEAL") return;
+    if (room.phase === "REVEAL") {
+      if (room.game_type !== "quiz-classic") return;
+      const key = `${code}:${room.current_round}:${room.phase}`;
+      if (autoFired.current === key) return;
+      autoFired.current = key;
+      post(`/api/rooms/${code}/next`, { to: "VOTE" });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      return;
+    }
     const submitted = room.counts?.submitted ?? room.submissions.length;
     const totalVotes = room.counts?.voted ?? room.submissions.reduce((n, s) => n + (s.votes ?? 0), 0);
     if (room.phase === "INPUT" && submitted < 2) {
@@ -631,10 +659,18 @@ export default function HostPage({ params }: { params: { code: string } }) {
     .map(([sid, pts]) => ({ sid, name: nameOf(room, sid), pts }))
     .sort((a, b) => b.pts - a.pts);
   // Round MVP: the answer with the most votes this round (ties → earliest).
-  const roundMvp = room.submissions.reduce<null | (typeof room.submissions)[number]>(
-    (best, s) => (!best || (s.votes ?? 0) > (best.votes ?? 0) ? s : best),
-    null,
-  );
+  // House rows (quiz choices/truth) are never MVP — quiz gets its own
+  // correct-answer spotlight below.
+  const roundMvp = room.submissions
+    .filter((s) => !isHouseSession(s.player_session))
+    .reduce<null | (typeof room.submissions)[number]>(
+      (best, s) => (!best || (s.votes ?? 0) > (best.votes ?? 0) ? s : best),
+      null,
+    );
+  // Quiz answer key (server-redacted until SCORE): spotlight the correct row.
+  const quizCorrect = room.quiz?.correct_session
+    ? (room.submissions.find((s) => s.player_session === room.quiz?.correct_session) ?? null)
+    : null;
   // Mascot swaps by phase: lobby idle, reveal/vote excited, score trophy.
   const mascotSrc =
     phase === "SCORE" ? IMAGES.score : phase === "LOBBY" ? IMAGES.lobby : IMAGES.reveal;
@@ -725,6 +761,20 @@ export default function HostPage({ params }: { params: { code: string } }) {
                   >
                     Draw
                   </button>
+                  <button
+                    onClick={() => setGameType("quiz-classic")}
+                    style={{ ...stepBtn, width: "auto", padding: "0 16px", background: gameType === "quiz-classic" ? THEME.yellow : "#fff" }}
+                    aria-pressed={gameType === "quiz-classic"}
+                  >
+                    Quiz
+                  </button>
+                  <button
+                    onClick={() => setGameType("quiz-bluff")}
+                    style={{ ...stepBtn, width: "auto", padding: "0 16px", background: gameType === "quiz-bluff" ? "#7c3aed" : "#fff", color: gameType === "quiz-bluff" ? "#fff" : "#111" }}
+                    aria-pressed={gameType === "quiz-bluff"}
+                  >
+                    Bluff
+                  </button>
                 </div>
                 <p style={{ fontSize: 18, opacity: 0.7, fontStyle: "italic" }}>{HOST_HINT}</p>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
@@ -764,7 +814,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
                         Emma
                       </button>
                       <span style={{ fontSize: 16, opacity: 0.7 }} role="status">
-                        {kokoroIsReady ? "ready — whose ears are burning?" : `warming… ${Math.round(kokoroPct * 100)}% — who's patient?`}
+                        {kokoroIsReady ? "ready — whose ears are burning?" : kokoroPct > 0 ? `warming… ${Math.round(kokoroPct * 100)}% — who's patient?` : "warming… who's patient?"}
                       </span>
                     </>
                   )}
@@ -906,6 +956,11 @@ export default function HostPage({ params }: { params: { code: string } }) {
                         ) : (
                           <p style={answerText}>{s.text_content}</p>
                         )}
+                        {letterForSession(s.player_session) && (
+                          <div style={{ display: "inline-block", fontFamily: DISPLAY_FONT, fontSize: 26, background: "#111", color: "#ffd23f", borderRadius: 10, padding: "2px 14px", marginBottom: 6 }}>
+                            {letterForSession(s.player_session)}
+                          </div>
+                        )}
                         <small style={{ opacity: 0.75, fontSize: 16 }}>{REVEAL_ANON}</small>
                       </motion.div>
                     ))}
@@ -941,6 +996,11 @@ export default function HostPage({ params }: { params: { code: string } }) {
                 <motion.div variants={grid} initial="hidden" animate="show" style={gridStyle}>
                   {room.submissions.map((s, i) => (
                     <motion.div key={s.player_session} variants={cardV} style={{ ...answerCard, ...card, transform: `rotate(${i % 2 ? 1 : -1}deg)` }}>
+                      {letterForSession(s.player_session) && (
+                        <div style={{ display: "inline-block", fontFamily: DISPLAY_FONT, fontSize: 30, background: "#111", color: "#ffd23f", borderRadius: 10, padding: "2px 16px", marginBottom: 8 }}>
+                          {letterForSession(s.player_session)}
+                        </div>
+                      )}
                       {s.image_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img src={s.image_url} alt="Drawing to vote on" style={{ width: "100%", borderRadius: 10, border: "2px solid #111", background: "#fff", display: "block" }} />
@@ -972,6 +1032,28 @@ export default function HostPage({ params }: { params: { code: string } }) {
                 </h2>
                 {final && <p style={sub}>{FINAL_SUB}</p>}
                 <p style={{ ...sub, opacity: 0.8 }}>{nextRoundLine(room.current_round, totalRounds)}</p>
+                {quizCorrect && (
+                  <motion.div
+                    initial={reduce ? { opacity: 0 } : { opacity: 0, y: -18, scale: 0.9 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    transition={{ type: "spring", stiffness: 240, damping: 20 }}
+                    style={{ ...answerCard, padding: "14px 20px", margin: "10px 0", maxWidth: 780, border: "4px solid #ffd23f" }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: DISPLAY_FONT, fontSize: 18, letterSpacing: 1 }}>
+                      <TrophyIcon size={22} /> CORRECT ANSWER{letterForSession(quizCorrect.player_session) ? ` — ${letterForSession(quizCorrect.player_session)}` : ""}
+                    </div>
+                    <div style={{ fontSize: 30, fontWeight: 800, marginTop: 4 }}>{quizCorrect.text_content}</div>
+                    <small style={{ opacity: 0.75 }}>
+                      {quizCorrect.votes ?? 0} {(quizCorrect.votes ?? 0) === 1 ? "vote" : "votes"}
+                      {(() => {
+                        const who = (room.votes_detail ?? [])
+                          .filter((v) => v.target_session === quizCorrect.player_session)
+                          .map((v) => nameOf(room, v.voter_session));
+                        return who.length > 0 ? ` · nailed by ${who.join(", ")}` : " · nobody got it";
+                      })()}
+                    </small>
+                  </motion.div>
+                )}
                 {roundMvp && (
                   <motion.div
                     initial={reduce ? { opacity: 0 } : { opacity: 0, y: -18, scale: 0.9 }}
@@ -1007,7 +1089,11 @@ export default function HostPage({ params }: { params: { code: string } }) {
                         return (
                           <motion.div key={s.player_session} variants={cardV} style={{ ...answerCard, ...card, padding: "12px 16px", minHeight: 0, opacity: 0.95, transform: `rotate(${i % 2 ? 1 : -1}deg)` }}>
                             <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: 1, color: "#7c3aed", textTransform: "uppercase" }}>
-                              {nameOf(room, s.player_session)}
+                              {isHouseSession(s.player_session)
+                                ? (s.player_session === room.quiz?.correct_session
+                                    ? `${letterForSession(s.player_session) ? `${letterForSession(s.player_session)} · ` : ""}correct answer`
+                                    : (letterForSession(s.player_session) ?? "house"))
+                                : nameOf(room, s.player_session)}
                             </div>
                             <div style={answerText}>
                               {s.image_url ? (
@@ -1030,16 +1116,18 @@ export default function HostPage({ params }: { params: { code: string } }) {
                 )}
                 {/* House awards: meaningless competitively, memorable socially. */}
                 {(() => {
-                  const texts = room.submissions.filter((s) => !s.image_url && s.text_content);
-                  const withVotes = room.submissions.filter((s) => (s.votes ?? 0) > 0);
+                  // House rows (quiz choices) can't win social awards.
+                  const votable = room.submissions.filter((s) => !isHouseSession(s.player_session));
+                  const texts = votable.filter((s) => !s.image_url && s.text_content);
+                  const withVotes = votable.filter((s) => (s.votes ?? 0) > 0);
                   const awards: string[] = [];
-                  const top = room.submissions.reduce<null | (typeof room.submissions)[number]>(
+                  const top = votable.reduce<null | (typeof votable)[number]>(
                     (b, s) => (!b || (s.votes ?? 0) > (b.votes ?? 0) ? s : b),
                     null,
                   );
                   if (top && (top.votes ?? 0) > 0) awards.push(awardCrowdFavorite(nameOf(room, top.player_session)));
                   const lone = withVotes.length === 1 ? withVotes[0] : null;
-                  if (lone && room.submissions.length > 2) awards.push(awardDarkHorse(nameOf(room, lone.player_session)));
+                  if (lone && votable.length > 2) awards.push(awardDarkHorse(nameOf(room, lone.player_session)));
                   if (texts.length >= 2) {
                     const longest = texts.reduce((b, s) => ((s.text_content?.length ?? 0) > (b.text_content?.length ?? 0) ? s : b));
                     const shortest = texts.reduce((b, s) => ((s.text_content?.length ?? 0) < (b.text_content?.length ?? 0) ? s : b));

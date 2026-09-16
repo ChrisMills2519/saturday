@@ -20,6 +20,8 @@ export type RoomSnapshot = {
   votes_detail: { voter_session: string; target_session: string }[];
   round_history: Record<string, Record<string, number>>;
   used_prompts: string[];
+  /** Quiz answer key: correct_session is null until SCORE (server-redacted). */
+  quiz: { correct_session: string | null; sessions: string[] } | null;
 };
 
 // Single hook both host + phones use. Server is source of truth,

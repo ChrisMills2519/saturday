@@ -81,8 +81,11 @@ function slotPriority(slot: Slot): number {
     case "input_opener":
     case "reveal_opener":
     case "vote_opener":
+    case "quiz_question":
       return 10;
     case "reveal_drawing":
+    case "quiz_correct":
+    case "quiz_bluff_sting":
       return 5;
     default:
       return 1;
@@ -121,8 +124,7 @@ export function sayAnswer(
   return speak(`${prefix}${clean}`, { type: "setup", priority: 5 });
 }
 
-/** Score extras: shutout / unanimous, spoken after the winner line.
- * leadMs should be the winner line's estimated speech time so extras
+/** Score extras: shutout / unanimous, spoken after the winner line. * leadMs should be the winner line's estimated speech time so extras
  * don't collide with the sticky mic-drop (they'd lose priority and drop). */
 export function scoreExtras(
   subs: SubmissionLike[],
@@ -147,4 +149,44 @@ export function scoreExtras(
     // Only call it unanimous-ish; the picker copy hedges honestly.
     queue(v.text, v.type);
   }
+}
+
+/**
+ * Quiz REVEAL entry: sting + the question read aloud, chained so the card
+ * lands visually first. Priority 10 like other phase openers.
+ */
+export function sayQuizQuestion(
+  question: string | null,
+  mode: SarcasmMode,
+  used: Set<string>,
+): boolean {
+  const sting = pickLine("quiz_question", mode, used);
+  speak(sting.text, { type: sting.type, priority: 10 });
+  const clean = sanitizeForSpeech(question);
+  if (!clean) return true;
+  const id = setTimeout(() => speak(clean, { type: "setup", priority: 10 }), estimateMs(sting.text));
+  void id;
+  return true;
+}
+
+/**
+ * Quiz SCORE reveal: correct/nobody line + the answer read aloud.
+ * Call with a base delay (winner mic-drop length) so it never collides.
+ */
+export function sayQuizAnswer(
+  correctText: string | null,
+  anyoneRight: boolean,
+  mode: SarcasmMode,
+  used: Set<string>,
+  delayMs = 3500,
+): boolean {
+  const slot = anyoneRight ? "quiz_correct" : "quiz_nobody_right";
+  const v = pickLine(slot, mode, used);
+  const clean = sanitizeForSpeech(correctText);
+  const id = setTimeout(() => {
+    speak(v.text, { type: v.type, priority: 5 });
+    if (clean) setTimeout(() => speak(clean, { type: "setup", priority: 5 }), estimateMs(v.text));
+  }, delayMs);
+  void id;
+  return true;
 }

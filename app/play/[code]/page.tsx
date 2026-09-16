@@ -3,6 +3,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { getSessionId } from "@/lib/gameEngine";
+import { isHouseSession, letterForSession } from "@/lib/quiz";
 import { THEME, DISPLAY_FONT, IMAGES, stageBg, answerCard, phoneBtn } from "@/lib/theme";
 import { Mascot } from "@/components/Mascot";
 import { clearDraft, loadDraft, loadJoin, loadVoted, saveDraft, saveJoin, saveVoted } from "@/lib/persistence";
@@ -489,6 +490,11 @@ function PlayInner({ code }: { code: string }) {
           ) : (
             votable.map((s) => (
               <motion.button key={s.player_session} onClick={() => vote(s.player_session)} whileTap={{ scale: 0.96 }} style={voteBtn}>
+                {letterForSession(s.player_session) && (
+                  <span style={{ display: "inline-block", fontFamily: DISPLAY_FONT, fontSize: 22, background: "#111", color: "#ffd23f", borderRadius: 8, padding: "0 12px", marginRight: 8 }}>
+                    {letterForSession(s.player_session)}
+                  </span>
+                )}
                 {s.image_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={s.image_url} alt="Drawing to vote on" style={{ width: "100%", borderRadius: 10, display: "block", background: "#fff" }} />
@@ -519,6 +525,16 @@ function PlayInner({ code }: { code: string }) {
               {myBreakdown ? ` · ${myBreakdown}` : ""}
             </p>
           )}
+          {room.quiz?.correct_session && (() => {
+            const correct = room.submissions.find((s) => s.player_session === room.quiz?.correct_session);
+            if (!correct) return null;
+            const letter = letterForSession(correct.player_session);
+            return (
+              <p style={{ fontSize: 20, fontWeight: 800, background: "#111", borderRadius: 12, padding: "10px 14px", margin: "8px 0" }}>
+                Correct answer{letter ? ` (${letter})` : ""}: “{correct.text_content}”
+              </p>
+            );
+          })()}
           <ul style={{ listStyle: "none", padding: 0 }}>
             {sortedScores.map((s, i) => (
               <li key={s.sessionId} style={s.sessionId === sid ? { ...scoreLi, border: "2px solid #7c3aed" } : scoreLi}>
@@ -535,7 +551,13 @@ function PlayInner({ code }: { code: string }) {
                   .sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0))
                   .map((s) => (
                     <li key={s.player_session} style={{ ...scoreLi, fontSize: 17 }}>
-                      <span style={{ color: "#7c3aed" }}>{nameOf(room, s.player_session)}</span>
+                      <span style={{ color: "#7c3aed" }}>
+                        {isHouseSession(s.player_session)
+                          ? (s.player_session === room.quiz?.correct_session
+                              ? `${letterForSession(s.player_session) ? `${letterForSession(s.player_session)} · ` : ""}correct answer`
+                              : (letterForSession(s.player_session) ?? "house"))
+                          : nameOf(room, s.player_session)}
+                      </span>
                       {s.image_url ? (
                         <span>
                           {" — "}

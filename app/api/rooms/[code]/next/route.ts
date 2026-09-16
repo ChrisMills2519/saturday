@@ -24,14 +24,17 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     return NextResponse.json({ error: `bad transition ${room.phase} -> ${to}` }, { status: 400 });
   const patch: Record<string, unknown> = { phase: to as string };
   if (to === "INPUT") {
-    patch.current_round = (room.current_round ?? 0) + 1;
-    // Bonus round off the final SCORE ("One more round"): extend the game's
+    patch.current_round = (room.current_round ?? 0) + 1;    // Bonus round off the final SCORE ("One more round"): extend the game's
     // length so the header reads "Round N of N" instead of "Round 4 of 3".
     const tr = (room.total_rounds as number | null) ?? 3;
     const cur = patch.current_round as number;
     if (cur > tr) patch.total_rounds = cur;
     const gt = (game_type as string) === "draw" ? "draw" : (game_type as string) === "text" ? "text" : (room.game_type as string) ?? "text";
+    if (gt === "quiz-classic" || gt === "quiz-bluff")
+      return NextResponse.json({ error: "quiz rounds start via start (LOBBY/SCORE -> REVEAL/INPUT)" }, { status: 400 });
     patch.game_type = gt;
+    // Leaving quiz: drop any stale quiz_state so old correct answers can't leak.
+    patch.quiz_state = null;
     if (typeof prompt === "string" && prompt.trim().length > 1) {
       patch.prompt = (prompt as string).trim();
       patch.prompt_hint = gt === "draw" ? drawHintFor((prompt as string).trim()) : hintForPrompt((prompt as string).trim());
@@ -66,11 +69,12 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     patch.current_round = 0;
     patch.prompt = null;
     patch.prompt_hint = null;
+    patch.quiz_state = null;
     // keep game_type + used_prompts + host_token so the room stays replay-ready
   }
   let { error } = await admin.from("rooms").update(patch).eq("code", code);
   // fallback for pre-migration DB
-  if (error?.message?.match?.(/prompt_hint|used_prompts|input_total|game_type|round_history/i)) {
+  if (error?.message?.match?.(/prompt_hint|used_prompts|input_total|game_type|round_history|quiz_state/i)) {
     const fallback: Record<string, unknown> = { phase: to as string };
     if (to === "INPUT") {
       fallback.current_round = patch.current_round;

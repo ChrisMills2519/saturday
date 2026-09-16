@@ -67,6 +67,10 @@ alter table public.rooms add column if not exists used_prompts jsonb not null de
 alter table public.rooms add column if not exists input_total int;
 alter table public.rooms add column if not exists host_token text;
 alter table public.rooms add column if not exists round_history jsonb not null default '{}'::jsonb;
+-- Quiz rounds (2026-09-16): house submissions carry the choices/truth
+-- (player_session = 'quiz:A'..'quiz:D' / 'quiz:truth'); quiz_state tracks
+-- which house row is correct. Redacted from snapshots until SCORE.
+alter table public.rooms add column if not exists quiz_state jsonb;
 
 create index if not exists rooms_created_at_idx on public.rooms (created_at);
 

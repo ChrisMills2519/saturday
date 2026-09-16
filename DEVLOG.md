@@ -315,3 +315,36 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 **Why:** user picked full swap + British + q8. Two build failures fixed along the way: bare `import("kokoro-js")` pulled `onnxruntime-node` native `.node` binaries (Next 14 resolves the `node` export condition) → tried aliasing the self-contained `dist/kokoro.web.js` → that references sibling `ort.bundle.min.mjs` + `.wasm` webpack can't resolve → final shape is CDN runtime import, which also keeps 2.1MB + ort out of the TV bundle entirely. NOTE: neural latency (2–5s gen) vs 2.3s REVEAL slam + `estimateMs` SCORE chaining is mitigated (pre-gen, FIFO, drop-before-gen) but real-duration chaining + slam-gating remain future work — living-room pass must confirm cadence.
 
 **Verified:** `typecheck` clean, `build` green (host 14.7 / play 6.67 kB — phones zero kokoro refs, no onnx/ort/transformers chunks in `.next`). `next start` smoke: `/ /preview /host/ZZZ9 /play/ZZZ9` all 200; host chunk contains Neural voice UI + pinned CDN URL; no stray server. Voice itself needs a human browser pass (warmup %, Fable vs Emma, reveal pacing, mute/voice-off).
+
+## 2026-09-16 — Sarcasm rescue (prosody lift + sharper savage + honest warmup %)
+
+**What changed:** browser test played a voice but flat. Two causes found (2 explore agents), both fixed. (1) Prosody: Kokoro has no pitch knob and I forced terminal `?→...` fall on all hype/punchline slots — 100% of those lines, killing the rise the shutout/ready jokes need. Fall now applies to hype only (`score_winner`/`score_unanimous` mic-drop); punchline (`lobby_ready`, `score_shutout`) keeps its lift. Speed spread widened (punchline 0.9→0.85, aside 1.15→1.2) to recover contrast without pitch. (2) Copy: sharpest savage upgrades for the 3 weakest slots agents flagged — `lobby_ready` ("voting for the other out of pity — whose charity case is this?"), `reveal_drawing` ("which one of you is calling THAT art?"), `vote_opener` ("which one sucks the least?"). (3) Warmup % lied: transformers reports progress 0–100 (not 0–1) and emits exactly 100 when Content-Length is unknown (the `installHook` console warning — benign, download completes fine), so the lobby jumped to 100% on chunk one. Handler now trusts intermediate values only, holds last otherwise; 0% renders indeterminate ("warming… who's patient?"). Also noted: sarcasm defaults to Family everywhere (toggle persists) — tester likely heard family; no code change, just check the lobby toggle says Savage.
+
+**Verified:** `typecheck` clean, `build` green (host 14.7 / play 6.67 kB, unchanged). Unpushed — needs commit + Vercel redeploy before the tester re-listens.
+
+## 2026-09-16 — Draw prompts doubled (30 → 60)
+
+**What changed:** 30 new hand-written entries in `lib/prompts_draw.ts` (`DRAW_PROMPTS`, each with phone hint), same noun-friendly Drawful style as the existing pack. New batch fills uncovered territory: animals (penguin lifeguard, giraffe convertible, worm rock band, octopus juggling, sloth race, goldfish escape), jobs/places (shark dentist, dinosaur DMV, taco truck on Mars, Eiffel Tower yoga), monsters (basement monster resume, gnome uprising, vampire dentist, yeti lemonade stand), household twists (leftovers escape, wifi router diary, time machine cardboard box). Three near-dupes caught in drafting and replaced (fridge/snowman/dog overlap with existing prompts).
+
+**Why:** draw pack was the thinnest (30 = ~10 games before cycling vs 140 for quiz, 40 for text). Now ~20 games per cycle.
+
+**Verified:** scripted checks — 60/60 unique (case-insensitive), all hints non-empty ≤40 chars, max prompt 38 chars, 0 profanity flags under repo `containsProfanity` rules. `npm run typecheck` clean, `npm run build` green.
+
+**What's next:** quiz game flow (new `game_type`, classic vs bluff, scoring) + host/phone UI.
+
+## 2026-09-16 — Full quiz system + voice (classic + bluff)
+
+**What changed:** quiz rounds are playable end-to-end in both modes, voiced throughout.
+- **Load-bearing trick:** votes target `submissions.player_session`, so the server pre-inserts reserved house rows (`quiz:A–D` choices, `quiz:truth`) at round start — blind INPUT redaction, VOTE tallies, one-vote guard, and auto-advance all work untouched. Only scoring forks on `game_type`.
+- **Schema:** `rooms.quiz_state jsonb` (`{quiz_id, choices, correct_index, correct_session}`), appended to `supabase/schema.sql` + applied live via migration. Snapshot redacts `correct_session` until SCORE and excludes house rows from `counts.submitted` (`lib/roomService.ts`, `lib/realtime.ts` type).
+- **Engine:** `GameType` (`text|draw|quiz-classic|quiz-bluff`); `canTransition(from,to,gameType?)` gains quiz-only `LOBBY/SCORE→REVEAL` (classic has no INPUT); `QUIZ_READ_SECONDS=15`, `QUIZ_SPEED_BONUS=50`, `QUIZ_FINDER=100` + worth helpers (`lib/gameEngine.ts`, `lib/quiz.ts` new).
+- **API:** `start` runs classic (card pick, 4 shuffled house rows, straight to REVEAL) and bluff (question prompt + hidden truth row, normal INPUT); classic start locked to LOBBY/SCORE so it can't hijack a live INPUT. `next`→INPUT rejects quiz gt (quiz rounds start via start) and clears stale `quiz_state`. `vote` pays classic correct-pickers (+speed kicker for first correct) and bluff truth-spotters, 0 for wrong picks, skips unanimous for quiz (top row may be a scoreless house row). `submit` untouched (phase guard covers classic).
+- **TV:** lobby picker gains Quiz + Bluff; A–D badges on REVEAL/VOTE cards; SCORE correct-answer spotlight (letter + text + nailed-by/nobody list); MVP/awards/authorship exclude house rows with house-aware labels; REVEAL timer bar uses the 15s read window; REVEAL clock auto-marches to VOTE for classic.
+- **Phones:** VOTE buttons gain A–D chips (house rows flow through automatically); SCORE shows correct-answer banner + house-aware recap labels.
+- **Voice:** 4 new slots (`quiz_question/correct/nobody_right/bluff_sting`, family + savage, all interrogative per house rule) in `hostPersonality.ts`; `sayQuizQuestion` (sting + question chained) + `sayQuizAnswer` (verdict + answer behind the winner mic-drop) in `hostLines.ts`; host page reads the question on quiz REVEAL-entry, teases instead of reading the bluff truth aloud mid-walk (no pre-vote leak), reveals the answer at SCORE.
+
+**Why:** user chose full system over voice-pack-only. Classic reuses the vote machinery (no schema for choices); bluff reuses the entire Fibbage loop — both honor server-authoritative, no-tick, generic-submission rules.
+
+**Verified:** `typecheck` clean, `build` green (host 16 / play 6.88 kB). Scripted asserts pass: old transitions intact, quiz-only REVEAL open, scoring math (100/200 correct, 50 speed, 100/200 finder), house helpers, quiz_state parsing, all new voice lines interrogative with types. Mental smoke: classic create→Quiz→REVEAL(Q+choices)→VOTE(A–D)→SCORE(spotlight+voice) and bluff create→Bluff→INPUT(fakes, truth hidden)→REVEAL(tease walk)→VOTE→SCORE(finder bonuses); text/draw regression unchanged.
+
+**What's next:** living-room playtest (both modes, voice cadence on real questions); category picker + difficulty ramp later.
