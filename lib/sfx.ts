@@ -43,6 +43,11 @@ export function ensureAudio(): boolean {
   }
 }
 
+/** Shared context for voice playback (Kokoro decodes into this ctx). */
+export function getAudioContext(): AudioContext | null {
+  return ctx;
+}
+
 function ready(): boolean {
   return !!ctx && unlocked && !isMuted();
 }

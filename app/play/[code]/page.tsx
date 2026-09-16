@@ -38,11 +38,11 @@ import {
 const MAX_LEN = 140;
 
 const PHASE_STATUS: Record<string, string> = {
-  LOBBY: "Game starting soon",
-  INPUT: "Your turn — write fast",
-  REVEAL: "Showtime on the TV",
-  VOTE: "Pick your favorite",
-  SCORE: "Results are in",
+  LOBBY: "Who's in?",
+  INPUT: "What have you got?",
+  REVEAL: "Whose is whose?",
+  VOTE: "Which one?",
+  SCORE: "Who won?",
 };
 
 export default function PlayPage({ params }: { params: { code: string } }) {
@@ -323,7 +323,7 @@ function PlayInner({ code }: { code: string }) {
   return (
     <main style={{ ...stageBg, ...wrap }}>
       <p style={codePill} aria-live="polite" role="status">{code} · {PHASE_STATUS[room.phase] ?? room.phase}</p>
-      <h1 style={promptCard}>{room.phase === "SCORE" ? (final ? FINAL_TITLE : "Results are in") : (room.prompt ?? `Room ${code} — waiting…`)}</h1>
+      <h1 style={promptCard}>{room.phase === "SCORE" ? (final ? FINAL_TITLE : "Who won?") : (room.prompt ?? `Room ${code} — who's joining?`)}</h1>
       {left !== null && (
         <motion.p
           role="timer"
@@ -333,7 +333,7 @@ function PlayInner({ code }: { code: string }) {
           transition={{ duration: 0.5, repeat: urgent && !reduce ? Infinity : 0, repeatDelay: 1 }}
           style={{ fontSize: 22, fontWeight: 800, color: urgent ? "#ff8a8a" : undefined, display: "flex", alignItems: "center", gap: 8 }}
         >
-          <TimerIcon size={24} /> {left}s {urgent ? "— HURRY!" : ""}
+          <TimerIcon size={24} /> {left}s {urgent ? "— whose answer?" : ""}
         </motion.p>
       )}
       <p style={{ opacity: 0.75, fontWeight: 700 }} aria-live="polite" role="status">{PHASE_STATUS[room.phase] ?? room.phase}</p>
@@ -352,7 +352,7 @@ function PlayInner({ code }: { code: string }) {
             <EyeIcon size={24} /> {JOINED_LOBBY_TITLE}
           </p>
           <p style={{ opacity: 0.7 }}>{JOINED_LOBBY_SUB}</p>
-          <p style={{ opacity: 0.7 }}>Best of {room.total_rounds ?? 3} — points carry across rounds.</p>
+          <p style={{ opacity: 0.7 }}>Best of {room.total_rounds ?? 3} — whose lead holds?</p>
         </div>
       )}
 
@@ -361,7 +361,7 @@ function PlayInner({ code }: { code: string }) {
           {isDraw ? (
             <>
               <p style={{ fontSize: 16, opacity: 0.8, margin: "0 0 4px", display: "flex", alignItems: "center", gap: 8 }}>
-                <DrawIcon size={20} /> {room.prompt_hint ?? "Draw it bold — stick figures count!"}
+                <DrawIcon size={20} /> {room.prompt_hint ?? "What does yours look like?"}
               </p>
               <DrawPad disabled={false} onDone={submitDrawing} />
             </>
@@ -376,7 +376,7 @@ function PlayInner({ code }: { code: string }) {
                     void submit();
                   }
                 }}
-                placeholder={room.prompt_hint ?? "Your answer…"}
+                placeholder={room.prompt_hint ?? "What's your answer?"}
                 rows={4}
                 maxLength={MAX_LEN}
                 autoCorrect="off"
@@ -387,7 +387,7 @@ function PlayInner({ code }: { code: string }) {
                 style={input}
               />
               <div style={{ fontSize: 13, opacity: 0.6, marginBottom: 8 }}>
-                {text.length}/{MAX_LEN} · {room.prompt_hint ?? "Short + funny wins"}
+                {text.length}/{MAX_LEN} · {room.prompt_hint ?? "What's the funniest version?"}
               </div>
               <motion.button
                 onClick={submit}
@@ -418,7 +418,7 @@ function PlayInner({ code }: { code: string }) {
           <p style={{ fontSize: 20, fontWeight: 700 }}>{SUBMITTED_TITLE}</p>
           {myDraft && <p style={{ opacity: 0.8, margin: "4px 0" }}>“{myDraft}”</p>}
           <p style={{ opacity: 0.7, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-            <EyeIcon size={22} /> Look at the TV — {room.counts?.submitted ?? room.submissions.length}/{Math.max(room.counts?.total ?? room.players.length, 1)} submitted.
+            <EyeIcon size={22} /> {room.counts?.submitted ?? room.submissions.length}/{Math.max(room.counts?.total ?? room.players.length, 1)} in — whose is best?
           </p>
           {!isDraw && (
             <motion.button
@@ -551,7 +551,7 @@ function PlayInner({ code }: { code: string }) {
               </ul>
             </div>
           )}
-          {final && <p style={{ opacity: 0.7 }}>{FINAL_SUB} Rematch? Hang tight — the host is setting it up.</p>}
+          {final && <p style={{ opacity: 0.7 }}>{FINAL_SUB} Rematch — who's back?</p>}
         </>
       )}
         </motion.div>

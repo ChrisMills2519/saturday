@@ -1,13 +1,16 @@
-// Saturday host personality: smug trivia nerd, family-safe by default.
-// Two banks over the same slots. hostCopy.ts stays the family baseline for
-// on-screen text; this file owns what the VOICE says, including the savage
-// bank. Beat markers ("...", " — ", "[beat]") are rendered as pauses by
+// Saturday host personality: smug trivia nerd who asks questions, never
+// teaches the rules. Two banks over the same slots. hostCopy.ts stays the
+// family baseline for on-screen text; this file owns what the VOICE says,
+// including the savage bank. Every line is interrogative (contains "?").
+// Beat markers ("...", " — ", "[beat]") are rendered as pauses by
 // lib/voice.ts chunkLine() — and map to silence tokens for Kokoro later.
 //
 // Target policy (load-bearing): roast answers + the room, never the person.
 // Family mode never names slow typers. Savage may jab at behavior ("still
-// typing... in a timed game") but never at identity. Shutout lines stay
+// typing... in a timed game?") but never at identity. Shutout lines stay
 // backhanded-kind in both modes — zero votes already hurts.
+// Self-vote / device / timing rules live in tiny silent on-screen captions
+// + API errors only, never in the voice.
 
 import type { SarcasmMode, LineType } from "./voice";
 
@@ -30,116 +33,116 @@ export type Slot =
 
 const FAMILY: Record<Slot, string[]> = {
   lobby_cold_open: [
-    "Saturday night... [beat] zero dignity required.",
-    "Welcome to Saturday. Technically... a trivia game. Spiritually... a mistake.",
+    "Saturday night... [beat] who showed up ready to lose with dignity?",
+    "Welcome to Saturday... technically a trivia game... spiritually a mistake — who invited this group?",
   ],
   lobby_ready: [
-    "Fun fact: you all showed up. [beat] The bar was on the floor, and yet — well done.",
-    "Enough humans. Actually... barely enough. I'll take it.",
+    "Fun fact: you all showed up... [beat] but who here actually came to win?",
+    "Enough humans... barely — so who's feeling brave already?",
   ],
   input_opener: [
-    "Round's on the TV. Read it... [beat] then write something better than you'd expect from this group.",
-    "Prompt's up. Fun fact: confidence beats comedy. Mostly. Write fast.",
+    "Prompt's on the TV... [beat] so what have you got — comedy or confidence?",
+    "Round's live... what would you write if you weren't overthinking it?",
   ],
   input_nudge: [
-    "Someone is typing... or napping. Fifty-fifty, honestly.",
-    "No Googling. Your brain is funnier. Probably. Low bar, but still.",
-    "Short answers win. This is not a novel. Looking at... everyone.",
-    "The host can see you stalling. The host is judging. Lovingly.",
-    "If stuck — blame Dad. It always lands. Fun fact.",
+    "Who's still typing — genius or napper?",
+    "Whose brain is buffering right now... and what's it loading?",
+    "Short or long... [beat] which way are you going with this one?",
+    "Who's stalling... and do they know I can see it?",
+    "Stuck? [beat] Whose name are you borrowing brilliance from?",
   ],
   input_stall: [
-    "Still waiting on a few masterpieces. Take your time... it's only a timed game.",
-    "Technically, the clock is real. Just FYI. For the... still typing.",
+    "Still waiting on a few masterpieces... whose magnum opus is it?",
+    "Clock's ticking... [beat] what's cooking in there — masterpiece or typo?",
   ],
   extend_snark: [
-    "Thirty more seconds. Use them... wisely. Or don't. I'm not your coach.",
-    "Extra time granted. Fun fact: the greats never needed it. Anyway.",
+    "Thirty more seconds... [beat] who's actually going to use them?",
+    "Extra time... whose genius needed a deadline extension?",
   ],
   reveal_opener: [
-    "Drumroll... [beat] authors stay anonymous. Cowards. All of you. Let's read.",
-    "Answers are in. Some of these are... choices. Host: read them LOUD.",
+    "Drumroll... [beat] ready to hear what this group calls funny?",
+    "Answers are in... so whose is whose — any guesses?",
   ],
   reveal_drawing: [
-    "Next... a drawing. Interpret that how you will. I have questions.",
-    "A visual entry. Bold. [beat] Confusing, but bold.",
+    "Next... a drawing — what am I looking at here, art or accident?",
+    "A visual entry... bold... [beat] but what was the artist thinking?",
   ],
   vote_opener: [
-    "Vote on your phones. Pick your favorite... [beat] no voting for yourself, cheaters. I check.",
-    "Ballots open. Choose wisely. Or don't — chaos is also content.",
+    "Ballots are live... [beat] which one actually deserves it?",
+    "So many choices... which one would you steal credit for?",
   ],
   score_winner: [
-    "Results. [beat] Someone in this room peaked tonight.",
-    "Scores are final. Well — final-ish. I don't do recounts.",
+    "Results... [beat] so who peaked tonight?",
+    "Scores are in... whose victory lap is this?",
   ],
   score_shutout: [
-    "Zero votes for that one. Bold strategy. The room has... spoken. Softly.",
-    "No votes there. It happens to the best. And... to this one.",
+    "Zero votes for that one... how does that even happen?",
+    "No votes there... [beat] who else felt that sting before?",
   ],
   score_unanimous: [
-    "A clean sweep. Everyone picked the same answer. [beat] Terrifying unity, honestly.",
-    "Unanimous. Fun fact: that almost never happens. Enjoy your moment.",
+    "A clean sweep... did you all plan that together?",
+    "Unanimous... [beat] when has this room ever agreed on anything?",
   ],
   score_award: [
-    "House awards. Meaningless competitively... [beat] memorable socially.",
-    "Bonus titles, because points clearly weren't enough validation.",
+    "House awards... [beat] who earned a title nobody asked for?",
+    "Bonus titles... whose consolation prize is this?",
   ],
 };
 
 const SAVAGE: Record<Slot, string[]> = {
   lobby_cold_open: [
-    "Saturday night. Zero dignity required... [beat] and looking at this lobby, zero dignity expected.",
-    "Welcome back. I lowered my expectations in advance. Smartest thing I've done all week.",
+    "Saturday night... [beat] who lowered their standards to be here?",
+    "Welcome back... I lowered my expectations in advance — who plans to prove me right?",
   ],
   lobby_ready: [
-    "Oh good, enough people that I can't blame low turnout for how this goes.",
-    "Two players. Each votes for the other... [beat] riveting format. Get a third human next time.",
+    "Oh good, enough people... so whose fault will it be when this goes sideways?",
+    "Two players... each backing the other — whose rivalry is this?",
   ],
   input_opener: [
-    "Prompt's on the TV. Read it twice — I know that's a big ask... [beat] then write.",
-    "Write something funny. I know, I know — pressure. You'll manage. Probably not, but try.",
+    "Prompt's live... read it twice, I know that's a big ask — but what have you got?",
+    "Pressure's on... so whose funny is actually going to show up?",
   ],
   input_nudge: [
-    "Still typing? The prompt wasn't a riddle. It was one sentence.",
-    "Fun fact: the greats answer in seconds. The goods answer in minutes. Guess which group this is.",
-    "Typing... deleting... typing. Just commit. Mediocrity loves confidence.",
-    "If your answer needs this long, it better cure something.",
+    "Still typing? The prompt was one sentence... what's taking so long?",
+    "The greats answer in seconds... the goods in minutes — which group is this?",
+    "Typing... deleting... typing... whose masterpiece keeps escaping?",
+    "If your answer needs this long... what exactly is it curing?",
   ],
   input_stall: [
-    "We're waiting on a masterpiece, apparently. In a timed party game. Sure.",
-    "Someone's still typing... in a timed game. Take your time. The clock is decorative anyway.",
+    "Waiting on a masterpiece, apparently... in a timed game — whose is it?",
+    "Someone's still typing... in a timed game — what could possibly be worth it?",
   ],
   extend_snark: [
-    "Oh, you need MORE time? Shocking. Thirty seconds. Spend them... thinking. First time for everything.",
-    "Extra time granted. The prompt didn't get harder while you waited, just FYI.",
+    "Oh, you need MORE time? Shocking... whose genius works on extension?",
+    "Extra time... did the prompt get harder, or did whose brain stall?",
   ],
   reveal_opener: [
-    "Answers locked. Authors anonymous... [beat] for their own protection, frankly. Let's read.",
-    "Drumroll. Some of these answers have... [beat] confidence. Misplaced, but confidence.",
+    "Answers locked... anonymous for their own protection — whose needs it most?",
+    "Drumroll... some of these have confidence... [beat] but whose is misplaced?",
   ],
   reveal_drawing: [
-    "Next... a drawing. I've seen better. On fridges. From toddlers. Anyway — vote.",
-    "A visual. Hmm. [beat] You know what, sure. Art is subjective. This is... subjective.",
+    "Next... a drawing — fridge-worthy, or... whose toddler did this?",
+    "A visual... hmm... [beat] what was the artist thinking — anyone?",
   ],
   vote_opener: [
-    "Vote. Pick the best one — I know, choosing between these is like choosing a favorite headache.",
-    "Ballots open. No voting for yourself. I know it's tempting when it's your only good option.",
+    "Ballots are live — choosing between these... whose headache is your favorite?",
+    "So many options... whose brilliance are you about to reward?",
   ],
   score_winner: [
-    "Winner crowned. [beat] Try to act surprised. You all saw the votes.",
-    "Champion decided. Accept your applause... all three claps of it.",
+    "Winner crowned... [beat] who saw that coming — honestly?",
+    "Champion decided... whose applause is loudest — all three claps?",
   ],
   score_shutout: [
-    "Zero votes. Not one pity vote. [beat] The room has spoken... by saying nothing.",
-    "That answer got no votes. Bold. Avant-garde. Unloved. Anyway.",
+    "Zero votes... not one pity vote — whose heart just broke a little?",
+    "That answer got no votes... bold... avant-garde — but whose was it?",
   ],
   score_unanimous: [
-    "Everyone voted for the same answer. Even the author's... well, they couldn't. But still. A miracle.",
-    "Clean sweep. The room agreed on something for once. Mark the date.",
+    "Everyone backed the same answer... even the author couldn't — so whose miracle is this?",
+    "Clean sweep... the room agreed for once — whose date do we mark?",
   ],
   score_award: [
-    "House awards — for those who couldn't win properly. Kidding... [beat] mostly.",
-    "Consolation titles. Because points weren't humiliating enough on their own.",
+    "House awards — for those who couldn't win properly... whose consolation is this?",
+    "Consolation titles... points weren't humiliating enough — whose name is next?",
   ],
 };
 

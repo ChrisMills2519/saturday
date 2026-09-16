@@ -1,18 +1,19 @@
-// Saturday announcer copy. The voice does half the work: every phase
-// gets a title card + subline + host instruction, plus rotating
-// one-liners to cover dead air during INPUT. Family-safe snark,
-// second person, jokes first and rules second. No emoji — icons
-// in components/icons.tsx carry the visual weight.
+// Saturday announcer copy. The voice asks the questions: every phase
+// gets a title card + question subline, plus rotating questions
+// to cover dead air during INPUT. Family-safe snark,
+// second person, questions first and never instructions. No emoji — icons
+// in components/icons.tsx carry the visual weight. Rules live in tiny
+// silent captions + API errors only (e.g. no self-vote).
 
 export const COLD_OPEN = "Saturday Night. Zero dignity required.";
 
-export const LOBBY_TITLE = "Get in here!";
-export const LOBBY_SUB = "Join on your phone. First round starts when the host says so.";
-export const LOBBY_EMPTY = "Nobody yet. Shout the code across the room.";
+export const LOBBY_TITLE = "Who's in?";
+export const LOBBY_SUB = "Who's joining this round?";
+export const LOBBY_EMPTY = "Who's first?";
 export function lobbyReady(n: number): string {
-  if (n === 2) return "Two in! Each of you votes for the other — 3+ is where the bloodsport starts.";
-  if (n < 3) return `${n} in — grab one more human to make voting work.`;
-  return `${n} humans, 1 TV. Everybody in? Start!`;
+  if (n === 2) return "Two in — whose rivalry is this?";
+  if (n < 3) return `${n} in — who's bringing one more human?`;
+  return `${n} humans, 1 TV. Who's ready?`;
 }
 
 export function roundTitle(round: number): string {
@@ -21,16 +22,16 @@ export function roundTitle(round: number): string {
   return `Round ${round} — final glory`;
 }
 
-export const INPUT_SUB = "Write fast. Worst answer still gets points for confidence.";
-export const INPUT_DONE_ALL = "Everyone's in!";
+export const INPUT_SUB = "What have you got?";
+export const INPUT_DONE_ALL = "Everyone's in — whose is best?";
 
 export const INPUT_ONELINERS = [
-  "Someone is typing… or napping. Fifty-fifty.",
-  "No Googling. Your brain is funnier. Probably.",
-  "Short answers win. This is not a novel.",
-  "The host can see you stalling.",
-  "Confidence beats comedy. Mostly.",
-  "If stuck, blame Dad. It always lands.",
+  "Who's still typing — genius or napper?",
+  "Whose brain is buffering right now?",
+  "Which way are you going — short or novel?",
+  "Who's stalling... and do they know?",
+  "Whose brilliance are you borrowing?",
+  "What's cooking in there?",
 ];
 
 export function inputNudge(submitted: number, total: number): string {
@@ -38,18 +39,18 @@ export function inputNudge(submitted: number, total: number): string {
   return `${submitted}/${total} locked in…`;
 }
 
-export const REVEAL_TITLE = "Drumroll…";
-export const REVEAL_SUB = "Host: read them LOUD. Authors stay anonymous.";
-export const REVEAL_ANON = "anonymous… for now";
+export const REVEAL_TITLE = "Drumroll… whose is whose?";
+export const REVEAL_SUB = "Whose is whose?";
+export const REVEAL_ANON = "whose, for now?";
 
-export const VOTE_TITLE = "Vote on your phones!";
-export const VOTE_SUB = "Pick your favorite. No voting for yourself, cheaters.";
-export const VOTE_BLIND = "blind vote";
+export const VOTE_TITLE = "Which one?";
+export const VOTE_SUB = "Which one deserves it? (not your own)";
+export const VOTE_BLIND = "whose leads?";
 export function voteProgress(voted: number, total: number): string {
-  return `${voted}/${total} voted — tallies hidden until scores…`;
+  return `${voted}/${total} voted — whose is leading?`;
 }
-export const VOTE_SOLO = "Only your answer is in — you can't vote for yourself. Grab another player, or get the host to skip to scores.";
-export const VOTE_NEED_MORE = "Need 2+ answers to vote (solo players can't vote for themselves) — invite more phones or skip to scores.";
+export const VOTE_SOLO = "Only yours is in — whose else would you pick? Add a player, or skip to scores.";
+export const VOTE_NEED_MORE = "Whose answers are missing? Need 2+ to vote (not your own) — add phones or skip to scores.";
 
 export const SCORE_TITLE = "Results!";
 export function roundOf(cur: number, total: number): string {
@@ -70,8 +71,8 @@ export function nextRoundLine(round: number, total: number): string {
 export const MVP_TITLE = "Round winner";
 export const EXTEND_LABEL = "+30 seconds";
 export const SKIP_LABEL = "Skip ahead";
-export const HOST_HINT = "You're the host: read answers loud, keep it moving.";
-export const REVEAL_HINT = "Tap the TV (or press Space) to slam the next answer.";
+export const HOST_HINT = "Who's reading this one?";
+export const REVEAL_HINT = "Whose is next? Tap for it.";
 export function drawingLabel(): string {
   return "drawing";
 }
@@ -103,12 +104,12 @@ export function personalLine(name: string, pts: number): string {
   return `${name} wins! — you have ${pts}`;
 }
 
-export const JOINED_LOBBY_TITLE = "You're in!";
-export const JOINED_LOBBY_SUB = "Look at the TV — the round starts soon.";
-export const SUBMITTED_TITLE = "You're in! Relax";
-export const REVEAL_LOOKUP_TITLE = "Look up!";
-export const REVEAL_LOOKUP_SUB = "Answers are on the TV. Voting opens next.";
-export const VOTED_TITLE = "Locked in — no take-backs. Results on TV soon.";
-export const VOTE_EMPTY_TITLE = "Nothing to vote on yet";
+export const JOINED_LOBBY_TITLE = "You're in — who's next?";
+export const JOINED_LOBBY_SUB = "Who else is joining?";
+export const SUBMITTED_TITLE = "Locked in — was that your best?";
+export const REVEAL_LOOKUP_TITLE = "Whose is whose?";
+export const REVEAL_LOOKUP_SUB = "Which one would you pick?";
+export const VOTED_TITLE = "Locked in — which one did you pick?";
+export const VOTE_EMPTY_TITLE = "Whose answers are missing?";
 export const SUBMIT_LATE = "Too late — round moved on!";
 export const ALREADY_VOTED = "Vote already locked in";

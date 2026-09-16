@@ -1,10 +1,11 @@
 // Shared prompt pack. One sentence, family-safe, blank-page-proof.
 // Server picks a random one when host doesn't supply a prompt,
 // so the game never stalls on the same 2 hardcodes.
-// Re-exports the 120-card library + DRAW packs. Legacy callers can
+// Re-exports the 120-card library + DRAW packs + QUIZ pack. Legacy callers can
 // still import { PROMPTS, randomPrompt } from here.
 export * from "@/lib/prompts_text";
 export * from "@/lib/prompts_draw";
+export * from "@/lib/prompts_quiz";
 
 // Back-compat helpers that keep the old call shape (string) while new
 // callers use the richer PromptCard type.

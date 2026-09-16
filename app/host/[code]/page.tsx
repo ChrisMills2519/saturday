@@ -75,18 +75,23 @@ import {
   setSarcasmMode,
   cancelVoice,
   speak,
+  isKokoroEnabled,
+  setKokoroEnabled,
+  kokoroReady,
+  pregenVoice,
   type SarcasmMode,
 } from "@/lib/voice";
+import { getKokoroVoice, setKokoroVoice, type KokoroVoiceId } from "@/lib/voiceKokoro";
 import { phaseLine, saySlot, sayAnswer, scoreExtras, shutUp, estimateMs } from "@/lib/hostLines";
 import { isFinalRound, MAX_PLAYERS } from "@/lib/gameEngine";
 import type { Phase } from "@/app/preview/HumanoidWalker";
 
 const PHASE_STATUS: Record<Phase, string> = {
-  LOBBY: "Waiting for players",
-  INPUT: "Answers coming in",
-  REVEAL: "Showtime — read them loud",
-  VOTE: "Voting open",
-  SCORE: "Results",
+  LOBBY: "Who's in?",
+  INPUT: "What have you got?",
+  REVEAL: "Whose is whose?",
+  VOTE: "Which one?",
+  SCORE: "Who won?",
 };
 
 const grid = {
@@ -213,13 +218,49 @@ export default function HostPage({ params }: { params: { code: string } }) {
   // Host voice: separate kill-switch from SFX mute, sarcasm bank persisted.
   const [voiceOn, setVoiceOnState] = useState(true);
   const [sarcasm, setSarcasmState] = useState<SarcasmMode>("family");
+  // Neural voice (Kokoro full swap): warms in LOBBY, Tier 1 until ready.
+  const [kokoroOn, setKokoroOnState] = useState(true);
+  const [kokoroVoice, setKokoroVoiceState] = useState<KokoroVoiceId>("bm_fable");
+  const [kokoroPct, setKokoroPct] = useState(0);
+  const [kokoroIsReady, setKokoroIsReady] = useState(false);
   const usedLines = useRef<Set<string>>(new Set());
   const stallFired = useRef("");
   const extrasTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => {
     setVoiceOnState(isVoiceEnabled());
     setSarcasmState(getSarcasmMode());
+    setKokoroOnState(isKokoroEnabled());
+    setKokoroVoiceState(getKokoroVoice());
+    setKokoroIsReady(kokoroReady());
   }, []);
+  // Poll neural warmup progress (cheap, LOBBY-only display).
+  useEffect(() => {
+    if (!kokoroOn || kokoroIsReady) return;
+    const id = setInterval(() => {
+      void import("@/lib/voiceKokoro")
+        .then((m) => {
+          setKokoroPct(m.kokoroProgress());
+          if (m.isKokoroReady()) {
+            setKokoroIsReady(true);
+            clearInterval(id);
+          }
+        })
+        .catch(() => {});
+    }, 500);
+    return () => clearInterval(id);
+  }, [kokoroOn, kokoroIsReady]);
+  // REVEAL-entry pre-gen: subs are known — cache card audio so slams play instantly.
+  useEffect(() => {
+    if (!room || room.phase !== "REVEAL") return;
+    if (!kokoroOn || !kokoroIsReady) return;
+    const lines = room.submissions.map((s, i) => {
+      const clean = (s.text_content ?? "").replace(/https?:\/\/\S+/g, "link").slice(0, 120);
+      if (s.image_url && !clean) return { text: "What am I looking at here, art or accident?", type: "aside" as const };
+      const prefix = room.submissions.length > 1 ? `Number ${i + 1}... ` : "";
+      return { text: `${prefix}${clean}`, type: "setup" as const };
+    });
+    pregenVoice(lines);
+  }, [room?.phase, room?.current_round, kokoroOn, kokoroIsReady]);
   const [rounds, setRounds] = useState(3);
   const [gameType, setGameType] = useState<"text" | "draw">("text");
   const [customPrompt, setCustomPrompt] = useState("");
@@ -297,6 +338,20 @@ export default function HostPage({ params }: { params: { code: string } }) {
   function switchSarcasm(mode: SarcasmMode) {
     setSarcasmMode(mode);
     setSarcasmState(mode);
+  }
+
+  function switchKokoro(on: boolean) {
+    setKokoroEnabled(on);
+    setKokoroOnState(on);
+    if (on) {
+      setKokoroIsReady(kokoroReady());
+      unlockVoice();
+    }
+  }
+
+  function switchKokoroVoice(v: KokoroVoiceId) {
+    setKokoroVoice(v);
+    setKokoroVoiceState(v);
   }
 
   // Fire confetti + fanfare once per SCORE entry.
@@ -485,7 +540,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
       game_type: gameType,
       ...(customPrompt.trim().length > 1 ? { prompt: customPrompt.trim() } : {}),
     });
-    if (!ok) setStartErr(data?.error === "need 2+ players to start" ? "Need 2+ players — get one more phone in!" : `Couldn't start: ${data?.error ?? "unknown"}`);
+    if (!ok) setStartErr(data?.error === "need 2+ players to start" ? "Need 2+ players — who's joining?" : `Couldn't start: ${data?.error ?? "unknown"}`);
     // Replacement-TV takeover: the server mints a new token and returns it, so
     // this device becomes the official host for next/kick/extend.
     if (ok && data?.host_token) {
@@ -497,7 +552,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
   async function extendTime() {
     // Don't race the last-second auto-advance: extending at 0-2s just 400s.
     if (left !== null && left <= 2) {
-      setActionErr("Clock's basically out — let it flip, or be quicker next time.");
+      setActionErr("Clock's basically out — whose flip is it?");
       return;
     }
     setActionErr(null);
@@ -526,11 +581,11 @@ export default function HostPage({ params }: { params: { code: string } }) {
     const submitted = room.counts?.submitted ?? room.submissions.length;
     const totalVotes = room.counts?.voted ?? room.submissions.reduce((n, s) => n + (s.votes ?? 0), 0);
     if (room.phase === "INPUT" && submitted < 2) {
-      setActionErr("Time's up but answers are thin — hit Reveal anyway to skip, or wait.");
+      setActionErr("Time's up with thin answers — whose call: Reveal or wait?");
       return;
     }
     if (room.phase === "VOTE" && totalVotes < 1) {
-      setActionErr("No votes came in — Show scores anyway, or hit Extend.");
+      setActionErr("No votes yet — whose call: scores or more time?");
       return;
     }
     const to = room.phase === "INPUT" ? "REVEAL" : "SCORE";
@@ -673,6 +728,48 @@ export default function HostPage({ params }: { params: { code: string } }) {
                 </div>
                 <p style={{ fontSize: 18, opacity: 0.7, fontStyle: "italic" }}>{HOST_HINT}</p>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 20, fontWeight: 800 }}>Neural voice:</span>
+                  <button
+                    onClick={() => switchKokoro(true)}
+                    style={{ ...stepBtn, width: "auto", padding: "0 16px", background: kokoroOn ? THEME.teal : "#fff" }}
+                    aria-pressed={kokoroOn}
+                    aria-label="Use neural voice"
+                  >
+                    Kokoro
+                  </button>
+                  <button
+                    onClick={() => switchKokoro(false)}
+                    style={{ ...stepBtn, width: "auto", padding: "0 16px", background: !kokoroOn ? THEME.pink : "#fff" }}
+                    aria-pressed={!kokoroOn}
+                    aria-label="Use built-in voice"
+                  >
+                    Built-in
+                  </button>
+                  {kokoroOn && (
+                    <>
+                      <button
+                        onClick={() => switchKokoroVoice("bm_fable")}
+                        style={{ ...stepBtn, width: "auto", padding: "0 16px", background: kokoroVoice === "bm_fable" ? THEME.teal : "#fff" }}
+                        aria-pressed={kokoroVoice === "bm_fable"}
+                        aria-label="British male voice"
+                      >
+                        Fable
+                      </button>
+                      <button
+                        onClick={() => switchKokoroVoice("bf_emma")}
+                        style={{ ...stepBtn, width: "auto", padding: "0 16px", background: kokoroVoice === "bf_emma" ? THEME.pink : "#fff" }}
+                        aria-pressed={kokoroVoice === "bf_emma"}
+                        aria-label="British female voice"
+                      >
+                        Emma
+                      </button>
+                      <span style={{ fontSize: 16, opacity: 0.7 }} role="status">
+                        {kokoroIsReady ? "ready — whose ears are burning?" : `warming… ${Math.round(kokoroPct * 100)}% — who's patient?`}
+                      </span>
+                    </>
+                  )}
+                </div>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 20, fontWeight: 800 }}>Host mouth:</span>
                   <button
                     onClick={() => switchSarcasm("family")}
@@ -697,7 +794,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
                     id="custom-prompt"
                     value={customPrompt}
                     onChange={(e) => setCustomPrompt(e.target.value.slice(0, 140))}
-                    placeholder="Write your own… e.g. Worst advice for burnt toast"
+                    placeholder="Your own… what's the question?"
                     maxLength={140}
                     autoComplete="off"
                     style={{ display: "block", width: "100%", boxSizing: "border-box", padding: 12, fontSize: 18, fontWeight: 700, borderRadius: 12, border: "3px solid #111", background: "#fff", color: "#111", outline: "none" }}
@@ -775,7 +872,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
                 <div style={promptHero}>{room.prompt}</div>
                 <p style={sub}>{REVEAL_SUB}</p>
                 <p style={{ fontSize: 18, opacity: 0.7, fontStyle: "italic" }}>
-                  {revealed < answerCount ? REVEAL_HINT : "That's the lot. Start voting."}
+                  {revealed < answerCount ? REVEAL_HINT : "That's the lot — which one?"}
                 </p>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", fontWeight: 800, fontSize: 20, flexWrap: "wrap" }}>
                   <span>{Math.min(revealed, answerCount)} / {answerCount} answers up</span>
