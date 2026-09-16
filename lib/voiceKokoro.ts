@@ -17,21 +17,12 @@ export const KOKORO_MODEL = "onnx-community/Kokoro-82M-v1.0-ONNX";
 export const KOKORO_VOICES = ["bm_fable", "bf_emma"] as const;
 export type KokoroVoiceId = (typeof KOKORO_VOICES)[number];
 
-const KOKORO_VOICE_KEY = "saturday:kokoro-voice"; // "bm_fable" | "bf_emma"
-
+// One voice for the whole game: Emma. Legacy stored Fable prefs migrate silently.
 export function getKokoroVoice(): KokoroVoiceId {
-  try {
-    const v = window.localStorage.getItem(KOKORO_VOICE_KEY);
-    if (v === "bf_emma") return "bf_emma";
-  } catch {}
-  return "bm_fable";
+  return "bf_emma";
 }
 
-export function setKokoroVoice(v: KokoroVoiceId): void {
-  try {
-    window.localStorage.setItem(KOKORO_VOICE_KEY, v);
-  } catch {}
-}
+export function setKokoroVoice(): void {}
 
 // Smug trivia nerd, neural edition: Kokoro has no pitch knob, only speed
 // (+ speaker choice). Question-only copy (?) gets a natural rise from the

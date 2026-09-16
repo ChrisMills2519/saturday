@@ -170,6 +170,43 @@ export function sayQuizQuestion(
 }
 
 /**
+ * INPUT entry for text/draw/bluff: savage sting + the challenge read aloud,
+ * chained like the quiz question. Priority 10 like other phase openers.
+ * Bluff-safe: the prompt is the QUESTION — the hidden truth row is never
+ * spoken here (REVEAL walk teases it instead).
+ */
+export function sayInputPrompt(
+  prompt: string | null,
+  mode: SarcasmMode,
+  used: Set<string>,
+): boolean {
+  const sting = pickLine("input_opener", mode, used);
+  speak(sting.text, { type: sting.type, priority: 10 });
+  const clean = sanitizeForSpeech(prompt);
+  if (!clean) return true;
+  const id = setTimeout(() => speak(clean, { type: "setup", priority: 10 }), estimateMs(sting.text));
+  void id;
+  return true;
+}
+
+/**
+ * INPUT stall jab that may name a slow typer. Names are sanitized +
+ * truncated (16 chars max, same as join validation) so speech can't be
+ * hijacked by a hostile display name.
+ */
+export function sayStall(
+  mode: SarcasmMode,
+  used: Set<string>,
+  slowName?: string | null,
+): boolean {
+  const v = pickLine("input_stall", mode, used);
+  if (!slowName) return speak(v.text, { type: v.type, priority: 1 });
+  const clean = sanitizeForSpeech(slowName).slice(0, 16);
+  if (!clean) return speak(v.text, { type: v.type, priority: 1 });
+  return speak(`${v.text} ${clean}... are you writing a novel?`, { type: v.type, priority: 1 });
+}
+
+/**
  * Quiz SCORE reveal: correct/nobody line + the answer read aloud.
  * Call with a base delay (winner mic-drop length) so it never collides.
  */

@@ -5,7 +5,7 @@
 // in components/icons.tsx carry the visual weight. Rules live in tiny
 // silent captions + API errors only (e.g. no self-vote).
 
-export const COLD_OPEN = "Saturday Night. Zero dignity required.";
+export const COLD_OPEN = "Saturday night — zero dignity required... so who's losing with style?";
 
 export const LOBBY_TITLE = "Who's in?";
 export const LOBBY_SUB = "Who's joining this round?";
@@ -17,9 +17,9 @@ export function lobbyReady(n: number): string {
 }
 
 export function roundTitle(round: number): string {
-  if (round <= 1) return "Round 1 — warm up those brains";
-  if (round === 2) return "Round 2 — no mercy";
-  return `Round ${round} — final glory`;
+  if (round <= 1) return "Round 1 — whose brain is warm?";
+  if (round === 2) return "Round 2 — whose mercy is gone?";
+  return `Round ${round} — whose glory is it?`;
 }
 
 export const INPUT_SUB = "What have you got?";
@@ -77,19 +77,19 @@ export function drawingLabel(): string {
   return "drawing";
 }
 export const FINAL_TITLE = "Final results!";
-export const FINAL_SUB = "Champion crowned. Rematch, or quit while you're behind.";
+export const FINAL_SUB = "Champion crowned... so who's back for a rematch?";
 export const AWARDS_TITLE = "House awards";
 export function awardCrowdFavorite(name: string): string {
-  return `Crowd favorite: ${name} — the room has spoken.`;
+  return `Crowd favorite: ${name} — who else could it be?`;
 }
 export function awardDarkHorse(name: string): string {
-  return `Dark horse: ${name} — one brave vote. Respect.`;
+  return `Dark horse: ${name} — one brave vote... whose was it?`;
 }
 export function awardNovelist(name: string): string {
-  return `Novelist: ${name} — used every last character.`;
+  return `Novelist: ${name} — used every last character... who has time for that?`;
 }
 export function awardMinimalist(name: string): string {
-  return `Minimalist: ${name} — said it in the fewest words.`;
+  return `Minimalist: ${name} — fewest words... who knew less was more?`;
 }
 export const REMATCH_LABEL = "Rematch (same code)";
 export const ONE_MORE_LABEL = "One more round";

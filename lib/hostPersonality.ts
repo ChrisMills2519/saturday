@@ -1,14 +1,13 @@
 // Saturday host personality: smug trivia nerd who asks questions, never
-// teaches the rules. Two banks over the same slots. hostCopy.ts stays the
-// family baseline for on-screen text; this file owns what the VOICE says,
-// including the savage bank. Every line is interrogative (contains "?").
+// teaches the rules. Savage-only: one voice for the whole game.
+// hostCopy.ts stays the baseline for on-screen text; this file owns what the
+// VOICE says. Every line is interrogative (contains "?").
 // Beat markers ("...", " — ", "[beat]") are rendered as pauses by
 // lib/voice.ts chunkLine() — and map to silence tokens for Kokoro later.
 //
-// Target policy (load-bearing): roast answers + the room, never the person.
-// Family mode never names slow typers. Savage may jab at behavior ("still
-// typing... in a timed game?") but never at identity. Shutout lines stay
-// backhanded-kind in both modes — zero votes already hurts.
+// Target policy: roast answers + the room and slow behavior, may name slow
+// typers by first name (sanitized, 16 chars max). Never punches identity.
+// Shutout lines stay backhanded-kind — zero votes already hurts.
 // Self-vote / device / timing rules live in tiny silent on-screen captions
 // + API errors only, never in the voice.
 
@@ -182,8 +181,11 @@ const SAVAGE: Record<Slot, string[]> = {
   ],
 };
 
-function bank(mode: SarcasmMode): Record<Slot, string[]> {
-  return mode === "savage" ? SAVAGE : FAMILY;
+// RETIRED 2026-09-16: FAMILY bank below is dead — voice is savage-only,
+// one voice for the whole game (Emma). Kept in file to keep the diff small;
+// bank() ignores mode and always deals savage.
+function bank(_mode: SarcasmMode): Record<Slot, string[]> {
+  return SAVAGE;
 }
 
 const LINE_TYPE: Record<Slot, LineType> = {
@@ -212,7 +214,7 @@ const LINE_TYPE: Record<Slot, LineType> = {
  * Pure + seeded-friendly for tests.
  */
 export function pickLine(slot: Slot, mode: SarcasmMode, used?: Set<string>): VoiceLine {
-  const lines = bank(mode)[slot] ?? FAMILY[slot];
+  const lines = bank(mode)[slot] ?? SAVAGE[slot];
   const type = LINE_TYPE[slot] ?? "setup";
   if (!used) return { text: lines[Math.floor(Math.random() * lines.length)], type };
   const fresh = lines.filter((l) => !used.has(`${slot}:${l}`));

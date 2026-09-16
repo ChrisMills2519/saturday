@@ -26,17 +26,18 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   if (!target) return NextResponse.json({ error: "no such player" }, { status: 404 });
 
   await admin.from("players").delete().eq("room_code", code).eq("session_id", target_session);
-  // Remove their rows so blind rosters + tallies stay honest.
-  await admin.from("submissions").delete().eq("room_code", code).eq("player_session", target_session);
-  await admin.from("votes").delete().eq("room_code", code).eq("voter_session", target_session);
+  // Remove only current/future round rows so past SCORE displays + history stay intact.
+  const curRound = (room.current_round as number | null) ?? 0;
+  await admin.from("submissions").delete().eq("room_code", code).eq("player_session", target_session).gte("round", curRound);
+  await admin.from("votes").delete().eq("room_code", code).eq("round", curRound).or(`voter_session.eq.${target_session},target_session.eq.${target_session}`);
 
-  const { data: players } = await admin.from("players").select("id", { count: "exact" }).eq("room_code", code);
-  if ((players ?? []).length < 2 && room.phase === "INPUT") {
+  const { count: remaining } = await admin.from("players").select("id", { count: "exact", head: true }).eq("room_code", code);
+  if ((remaining ?? 0) < 2 && room.phase === "INPUT") {
     // Abort the round: too few humans to score.
     await admin.from("rooms").update({ phase: "LOBBY", ends_at: null, input_total: null }).eq("code", code);
-  } else if (room.phase === "INPUT") {
+  } else if (room.phase === "INPUT" || room.phase === "VOTE") {
     // Re-freeze the denominator so remaining players aren't stuck at N-1/N.
-    await admin.from("rooms").update({ input_total: (players ?? []).length }).eq("code", code);
+    await admin.from("rooms").update({ input_total: remaining ?? 0 }).eq("code", code);
   }
   await bumpSeq(code);
   await broadcastRoom(code, await getSnapshot(code));

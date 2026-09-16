@@ -79,15 +79,21 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   let awardPts = voteWorth(totalPlayers, isFinal);
   if (quizHouseVote && qs) {
     if (room.game_type === "quiz-classic" && target_session === qs.correct_session) {
-      const { count: correctVotes } = await admin
+      // First-correct-voter wins the speed kicker: resolve by earliest vote row,
+      // not by count==1 (two simultaneous correct votes both saw count 1 before).
+      const { data: firstCorrect } = await admin
         .from("votes")
-        .select("id", { count: "exact", head: true })
+        .select("voter_session")
         .eq("room_code", code)
         .eq("round", rr)
-        .eq("target_session", qs.correct_session);
+        .eq("target_session", qs.correct_session)
+        .order("id", { ascending: true })
+        .limit(1)
+        .maybeSingle();
       awardSession = session_id;
       awardPts =
-        quizCorrectWorth(totalPlayers, isFinal) + (correctVotes === 1 ? quizSpeedBonus(isFinal) : 0);
+        quizCorrectWorth(totalPlayers, isFinal) +
+        (firstCorrect?.voter_session === session_id ? quizSpeedBonus(isFinal) : 0);
     } else if (room.game_type === "quiz-bluff" && target_session === QUIZ_TRUTH_SESSION) {
       awardSession = session_id;
       awardPts = quizFinderWorth(isFinal);
@@ -151,18 +157,19 @@ export async function POST(req: Request, { params }: { params: { code: string } 
           rh2[key] = { ...(rh2[key] ?? {}) };
           rh2[key][maxRow.player_session] = (rh2[key][maxRow.player_session] ?? 0) + UNANIMOUS_BONUS;
           try {
-            await admin.from("rooms").update({ scores: curScores, round_history: rh2, phase: "SCORE", ends_at: null, input_total: null }).eq("code", code);
+            await admin.from("rooms").update({ scores: curScores, round_history: rh2, phase: "SCORE", ends_at: null, input_total: null }).eq("code", code).eq("phase", "VOTE");
           } catch {
-            await admin.from("rooms").update({ scores: curScores, phase: "SCORE", ends_at: null }).eq("code", code);
+            await admin.from("rooms").update({ scores: curScores, phase: "SCORE", ends_at: null }).eq("code", code).eq("phase", "VOTE");
           }
         } else {
-          await admin.from("rooms").update({ phase: "SCORE", ends_at: null, input_total: null }).eq("code", code);
+          await admin.from("rooms").update({ phase: "SCORE", ends_at: null, input_total: null }).eq("code", code).eq("phase", "VOTE");
         }
         await bumpSeq(code);
         await broadcastRoom(code, await getSnapshot(code));
         return NextResponse.json({ ok: true });
       }
-      await admin.from("rooms").update({ phase: "SCORE", ends_at: null, input_total: null }).eq("code", code);
+      // Conditional write: concurrent last-votes collapse to one SCORE flip.
+      await admin.from("rooms").update({ phase: "SCORE", ends_at: null, input_total: null }).eq("code", code).eq("phase", "VOTE");
     }
   } catch { /* best-effort */ }
 

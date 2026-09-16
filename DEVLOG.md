@@ -348,3 +348,28 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 **Verified:** `typecheck` clean, `build` green (host 16 / play 6.88 kB). Scripted asserts pass: old transitions intact, quiz-only REVEAL open, scoring math (100/200 correct, 50 speed, 100/200 finder), house helpers, quiz_state parsing, all new voice lines interrogative with types. Mental smoke: classic create→Quiz→REVEAL(Q+choices)→VOTE(A–D)→SCORE(spotlight+voice) and bluff create→Bluff→INPUT(fakes, truth hidden)→REVEAL(tease walk)→VOTE→SCORE(finder bonuses); text/draw regression unchanged.
 
 **What's next:** living-room playtest (both modes, voice cadence on real questions); category picker + difficulty ramp later.
+
+## 2026-09-16 — Review P0s + quiz voice confirm
+
+**Voice reads questions? Yes.** `sayQuizQuestion` (`lib/hostLines.ts:158`) speaks sting then chained clean question; host page calls it on quiz REVEAL-entry (`app/host/[code]/page.tsx:492-494`). REVEAL walk reads each choice via `sayAnswer` ("Number X... <choice>"); bluff truth row teased via `quiz_bluff_sting`, never read pre-vote. `sayQuizAnswer` reads verdict + answer at SCORE behind winner mic-drop. Caveat: text/draw INPUT prompts are NOT read aloud (generic opener only).
+
+**Quiz set up? Yes end-to-end.** 420 CC0 cards (`lib/prompts_quiz.ts`, open-quiz-bank seed); `start` classic LOBBY/SCORE->REVEAL with 4 house rows + 15s read, bluff INPUT with hidden truth; `quiz_state` redacted until SCORE (`roomService`); `vote` pays correct voter + first-correct speed kicker (now earliest-row, not count==1), bluff finder bonus, wrong=0; TV A-D badges + correct spotlight, phones A-D chips + correct banner.
+
+**P0 fixes (sub-agent review):**
+- Schema truth: checked in `bump_room_seq` + `increment_vote` RPCs (fresh deploys 500'd before), enabled RLS deny-by-default + revoked anon grants so browser can't bypass blind redaction. Applied live.
+- `start` takeover: bare no-token no longer steals host; needs `{ takeover: true }` in LOBBY.
+- `vote`: speed kicker = earliest voter; SCORE flips guarded `.eq(phase,VOTE)` so concurrent last-votes collapse.
+- `kick`: deletes only round >= current, votes scoped to round, count via head:true, re-freeze for INPUT+VOTE.
+- Lobby 10ft: joinUrl 28px bold + how-to line, QR 170px with caption; 3-step tutorial strip; host voice/sarcasm/custom collapsed in <details>; COLD_OPEN/FINAL_SUB/awards/roundTitle rewritten interrogative; advance/extend errors mapped to host voice.
+
+**Verified:** `npm run typecheck` clean, `npm run build` green. Mental smoke create->join->quiz-classic REVEAL voice->vote->score.
+
+## 2026-09-16 — Savage-only Emma, reads every challenge
+
+**What changed (per user: one voice, savage, sting + prompt):**
+- Voice is savage-only: `SarcasmMode = "savage"`, `getSarcasmMode()` hardcodes savage; `hostPersonality` bank() always deals SAVAGE (FAMILY retired in place). Stall policy now names one slow typer (sanitized, 16 chars).
+- One voice: Emma (`bf_emma`) hardcoded in `voiceKokoro`; Fable/Kokoro/Built-in/Savage toggles removed from lobby. Status line reads "Voice: Emma (savage) — ready/warming…". Tier-1 fallback + `NEXT_PUBLIC_VOICE=tier1` stay as silent rollback, no UI.
+- Reads all questions: new `sayInputPrompt` (sting + sanitized prompt chained, p10) called on every INPUT entry (text/draw/bluff); quiz-classic unchanged on REVEAL; bluff truth still never read pre-vote. INPUT prompt pre-gen added for Kokoro.
+- Voice previews for deciding (unchanged weights): official demo https://huggingface.co/spaces/hexgrad/Kokoro-TTS, compare https://terokarvinen.com/kokoro-foss-tts-voice-comparison/, samples https://rewind.ai/voices/.
+
+**Verified:** `npm run typecheck` clean, `npm run build` green (host 13.9 kB). Mental smoke: LOBBY savage cold open → INPUT sting + challenge → stall names straggler → REVEAL/ VOTE/SCORE unchanged.

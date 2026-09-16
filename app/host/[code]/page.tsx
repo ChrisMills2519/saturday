@@ -71,18 +71,12 @@ import {
   unlockVoice,
   isVoiceEnabled,
   setVoiceEnabled,
-  getSarcasmMode,
-  setSarcasmMode,
   cancelVoice,
   speak,
-  isKokoroEnabled,
-  setKokoroEnabled,
   kokoroReady,
   pregenVoice,
-  type SarcasmMode,
 } from "@/lib/voice";
-import { getKokoroVoice, setKokoroVoice, type KokoroVoiceId } from "@/lib/voiceKokoro";
-import { phaseLine, saySlot, sayAnswer, sayQuizQuestion, sayQuizAnswer, scoreExtras, shutUp, estimateMs } from "@/lib/hostLines";
+import { phaseLine, saySlot, sayAnswer, sayInputPrompt, sayQuizQuestion, sayQuizAnswer, sayStall, scoreExtras, shutUp, estimateMs } from "@/lib/hostLines";
 import { isFinalRound, MAX_PLAYERS, type GameType } from "@/lib/gameEngine";
 import { isHouseSession, letterForSession } from "@/lib/quiz";
 import type { Phase } from "@/app/preview/HumanoidWalker";
@@ -216,12 +210,12 @@ export default function HostPage({ params }: { params: { code: string } }) {
   const left = useCountdown(room?.ends_at ?? null);
   const [muted, setMutedState] = useState(false);
   const [soundOn, setSoundOn] = useState(false);
-  // Host voice: separate kill-switch from SFX mute, sarcasm bank persisted.
+  // Host voice: separate kill-switch from SFX mute. Savage-only, Emma-only:
+  // one voice for the whole game, no toggles. Tier-1 fallback stays silent
+  // in code (NEXT_PUBLIC_VOICE=tier1) for debug, no UI.
   const [voiceOn, setVoiceOnState] = useState(true);
-  const [sarcasm, setSarcasmState] = useState<SarcasmMode>("family");
-  // Neural voice (Kokoro full swap): warms in LOBBY, Tier 1 until ready.
-  const [kokoroOn, setKokoroOnState] = useState(true);
-  const [kokoroVoice, setKokoroVoiceState] = useState<KokoroVoiceId>("bm_fable");
+  const sarcasm = "savage" as const;
+  const kokoroOn = true;
   const [kokoroPct, setKokoroPct] = useState(0);
   const [kokoroIsReady, setKokoroIsReady] = useState(false);
   const usedLines = useRef<Set<string>>(new Set());
@@ -229,14 +223,11 @@ export default function HostPage({ params }: { params: { code: string } }) {
   const extrasTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   useEffect(() => {
     setVoiceOnState(isVoiceEnabled());
-    setSarcasmState(getSarcasmMode());
-    setKokoroOnState(isKokoroEnabled());
-    setKokoroVoiceState(getKokoroVoice());
     setKokoroIsReady(kokoroReady());
   }, []);
   // Poll neural warmup progress (cheap, LOBBY-only display).
   useEffect(() => {
-    if (!kokoroOn || kokoroIsReady) return;
+    if (kokoroIsReady) return;
     const id = setInterval(() => {
       void import("@/lib/voiceKokoro")
         .then((m) => {
@@ -249,7 +240,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
         .catch(() => {});
     }, 500);
     return () => clearInterval(id);
-  }, [kokoroOn, kokoroIsReady]);
+  }, [kokoroIsReady]);
   // REVEAL-entry pre-gen: subs are known — cache card audio so slams play instantly.
   useEffect(() => {
     if (!room || room.phase !== "REVEAL") return;
@@ -261,6 +252,13 @@ export default function HostPage({ params }: { params: { code: string } }) {
       return { text: `${prefix}${clean}`, type: "setup" as const };
     });
     pregenVoice(lines);
+  }, [room?.phase, room?.current_round, kokoroOn, kokoroIsReady]);
+  // INPUT-entry pre-gen: prompt is known at round start — cache sting + prompt.
+  useEffect(() => {
+    if (!room || room.phase !== "INPUT" || !room.prompt) return;
+    if (!kokoroOn || !kokoroIsReady) return;
+    const clean = room.prompt.replace(/https?:\/\/\S+/g, "link").slice(0, 120);
+    if (clean) pregenVoice([{ text: clean, type: "setup" as const }]);
   }, [room?.phase, room?.current_round, kokoroOn, kokoroIsReady]);
   const [rounds, setRounds] = useState(3);
   const [gameType, setGameType] = useState<GameType>("text");
@@ -309,13 +307,22 @@ export default function HostPage({ params }: { params: { code: string } }) {
   // and we save it here (so UI like kick buttons appears).
   const [hasToken, setHasTokenState] = useState(() => !!getHostToken(code));
 
+  function voiceErr(raw: unknown): string {
+    const s = String((raw as Record<string, unknown>)?.error ?? raw ?? "unknown");
+    if (/bad transition/i.test(s)) return "Not yet — whose round is it?";
+    if (/nothing to extend|no room/i.test(s)) return "Too late — round moved on, whose next?";
+    if (/host token/i.test(s)) return "Host only — whose TV is driving?";
+    if (/need 2\+/i.test(s)) return "Need 2+ players — who's joining?";
+    return `Hmm — ${s}... whose fault is that?`;
+  }
+
   async function advance(to: string) {
     if (advancing) return;
     setAdvancing(true);
     setActionErr(null);
     try {
       const { ok, data } = await post(`/api/rooms/${code}/next`, { to });
-      if (!ok) setActionErr(`Couldn't advance: ${data?.error ?? "unknown"}`);
+      if (!ok) setActionErr(voiceErr(data));
     } finally {
       setAdvancing(false);
     }
@@ -334,25 +341,6 @@ export default function HostPage({ params }: { params: { code: string } }) {
     setVoiceEnabled(next);
     setVoiceOnState(next);
     unlockVoice();
-  }
-
-  function switchSarcasm(mode: SarcasmMode) {
-    setSarcasmMode(mode);
-    setSarcasmState(mode);
-  }
-
-  function switchKokoro(on: boolean) {
-    setKokoroEnabled(on);
-    setKokoroOnState(on);
-    if (on) {
-      setKokoroIsReady(kokoroReady());
-      unlockVoice();
-    }
-  }
-
-  function switchKokoroVoice(v: KokoroVoiceId) {
-    setKokoroVoice(v);
-    setKokoroVoiceState(v);
   }
 
   // Fire confetti + fanfare once per SCORE entry.
@@ -494,6 +482,12 @@ export default function HostPage({ params }: { params: { code: string } }) {
       sayQuizQuestion(room.prompt, sarcasm, usedLines.current);
       return;
     }
+    // INPUT: sting + the challenge read aloud (text/draw/bluff alike).
+    if (room.phase === "INPUT") {
+      shutUp();
+      sayInputPrompt(room.prompt, sarcasm, usedLines.current);
+      return;
+    }
     shutUp();
     speak(line.text, { type: line.type, priority: line.priority });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -537,7 +531,10 @@ export default function HostPage({ params }: { params: { code: string } }) {
     const key = `${code}:${room.current_round}`;
     if (stallFired.current === key) return;
     stallFired.current = key;
-    saySlot("input_stall", sarcasm, usedLines.current);
+    // Name one slow typer (savage may name names; sanitized in sayStall).
+    const submittedSessions = new Set(room.submissions.map((s) => s.player_session));
+    const slow = room.players.find((p) => !submittedSessions.has(p.session_id))?.name ?? null;
+    sayStall(sarcasm, usedLines.current, slow);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [left, room?.phase]);
 
@@ -574,7 +571,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
     }
     setActionErr(null);
     const { ok, data } = await post(`/api/rooms/${code}/extend`, { seconds: 30 });
-    if (!ok) setActionErr(`Couldn't add time: ${data?.error ?? "unknown"}`);
+    if (!ok) setActionErr(voiceErr(data));
     else {
       setTimerTotal((t) => t + 30);
       if (voiceOn && !muted) saySlot("extend_snark", sarcasm, usedLines.current);
@@ -701,10 +698,14 @@ export default function HostPage({ params }: { params: { code: string } }) {
               <div>
                 <div style={{ fontFamily: DISPLAY_FONT, fontSize: 18, letterSpacing: 3, opacity: 0.8 }}>JOIN AT</div>
                 <div style={{ ...outlineTitle(72), fontSize: "clamp(48px, 8vw, 96px)" }}>{room.code}</div>
-                <div style={{ fontSize: 18, opacity: 0.85 }}>{joinUrl}</div>
+                <div style={{ fontSize: 28, fontWeight: 800 }}>{joinUrl}</div>
+                <div style={{ fontSize: 16, opacity: 0.8 }}>Phones go to the link above — whose phone is first?</div>
               </div>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={qr} alt="Join QR" width={150} height={150} style={{ background: "#fff", padding: 8, borderRadius: 14, border: "3px solid #111", boxShadow: "5px 5px 0 #111" }} />
+              <figure style={{ margin: 0, textAlign: "center" }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={qr} alt="Scan to join" width={170} height={170} style={{ background: "#fff", padding: 8, borderRadius: 14, border: "3px solid #111", boxShadow: "5px 5px 0 #111" }} />
+                <figcaption style={{ fontSize: 16, fontWeight: 800, marginTop: 4 }}>Scan to join — whose phone is next?</figcaption>
+              </figure>
               <div>
                 <div style={{ fontFamily: DISPLAY_FONT, fontSize: 24 }} aria-live="polite" role="status">
                   {room.phase === "LOBBY" ? `Best of ${totalRounds}` : roundOf(room.current_round, totalRounds)} · {PHASE_STATUS[phase] ?? phase}
@@ -741,6 +742,13 @@ export default function HostPage({ params }: { params: { code: string } }) {
                 ) : (
                   <p style={{ fontSize: 22, fontWeight: 800 }}>{lobbyReady(room.players.length)}</p>
                 )}
+                <div style={{ display: "flex", gap: 10, marginTop: 8, flexWrap: "wrap" }} aria-label="How to play">
+                  {["1. Answer on your phone — whose funny is best?", "2. Vote for a favorite — not your own, whose?", "3. Most votes wins — whose victory lap?"].map((t) => (
+                    <div key={t} style={{ background: "#fff", color: "#111", border: "3px solid #111", borderRadius: 12, padding: "8px 14px", fontSize: 17, fontWeight: 800, boxShadow: "4px 4px 0 #111" }}>
+                      {t}
+                    </div>
+                  ))}
+                </div>
                 <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 20, fontWeight: 800 }}>Rounds:</span>
                   <button onClick={() => setRounds((r) => Math.max(1, r - 1))} style={stepBtn} aria-label="Fewer rounds">−</button>
@@ -777,65 +785,11 @@ export default function HostPage({ params }: { params: { code: string } }) {
                   </button>
                 </div>
                 <p style={{ fontSize: 18, opacity: 0.7, fontStyle: "italic" }}>{HOST_HINT}</p>
-                <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 20, fontWeight: 800 }}>Neural voice:</span>
-                  <button
-                    onClick={() => switchKokoro(true)}
-                    style={{ ...stepBtn, width: "auto", padding: "0 16px", background: kokoroOn ? THEME.teal : "#fff" }}
-                    aria-pressed={kokoroOn}
-                    aria-label="Use neural voice"
-                  >
-                    Kokoro
-                  </button>
-                  <button
-                    onClick={() => switchKokoro(false)}
-                    style={{ ...stepBtn, width: "auto", padding: "0 16px", background: !kokoroOn ? THEME.pink : "#fff" }}
-                    aria-pressed={!kokoroOn}
-                    aria-label="Use built-in voice"
-                  >
-                    Built-in
-                  </button>
-                  {kokoroOn && (
-                    <>
-                      <button
-                        onClick={() => switchKokoroVoice("bm_fable")}
-                        style={{ ...stepBtn, width: "auto", padding: "0 16px", background: kokoroVoice === "bm_fable" ? THEME.teal : "#fff" }}
-                        aria-pressed={kokoroVoice === "bm_fable"}
-                        aria-label="British male voice"
-                      >
-                        Fable
-                      </button>
-                      <button
-                        onClick={() => switchKokoroVoice("bf_emma")}
-                        style={{ ...stepBtn, width: "auto", padding: "0 16px", background: kokoroVoice === "bf_emma" ? THEME.pink : "#fff" }}
-                        aria-pressed={kokoroVoice === "bf_emma"}
-                        aria-label="British female voice"
-                      >
-                        Emma
-                      </button>
-                      <span style={{ fontSize: 16, opacity: 0.7 }} role="status">
-                        {kokoroIsReady ? "ready — whose ears are burning?" : kokoroPct > 0 ? `warming… ${Math.round(kokoroPct * 100)}% — who's patient?` : "warming… who's patient?"}
-                      </span>
-                    </>
-                  )}
-                </div>
-                <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 20, fontWeight: 800 }}>Host mouth:</span>
-                  <button
-                    onClick={() => switchSarcasm("family")}
-                    style={{ ...stepBtn, width: "auto", padding: "0 16px", background: sarcasm === "family" ? THEME.teal : "#fff" }}
-                    aria-pressed={sarcasm === "family"}
-                  >
-                    Family
-                  </button>
-                  <button
-                    onClick={() => switchSarcasm("savage")}
-                    style={{ ...stepBtn, width: "auto", padding: "0 16px", background: sarcasm === "savage" ? THEME.pink : "#fff" }}
-                    aria-pressed={sarcasm === "savage"}
-                  >
-                    Savage
-                  </button>
-                </div>
+                <details style={{ marginTop: 8, background: "rgba(255,255,255,0.08)", borderRadius: 12, padding: "8px 14px", maxWidth: 720 }}>
+                  <summary style={{ fontSize: 18, fontWeight: 800, cursor: "pointer" }}>Host options — whose tweaks are these?</summary>
+                <p style={{ fontSize: 18, fontWeight: 800, margin: "8px 0 0" }} role="status">
+                  Voice: Emma (savage) — {kokoroIsReady ? "ready, whose ears are burning?" : kokoroPct > 0 ? `warming… ${Math.round(kokoroPct * 100)}% — who's patient?` : "warming… who's patient?"}
+                </p>
                 <div style={{ marginTop: 8, maxWidth: 640 }}>
                   <label htmlFor="custom-prompt" style={{ fontSize: 18, fontWeight: 800, display: "block", marginBottom: 4 }}>
                     Custom prompt (optional)
@@ -850,6 +804,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
                     style={{ display: "block", width: "100%", boxSizing: "border-box", padding: 12, fontSize: 18, fontWeight: 700, borderRadius: 12, border: "3px solid #111", background: "#fff", color: "#111", outline: "none" }}
                   />
                 </div>
+                </details>
                 <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={startGame}>
                   Start round
                 </motion.button>

@@ -37,24 +37,30 @@ function quizCategoryLabel(category: string): string {
 // INPUT flow with the truth pre-inserted as a hidden house row.
 export async function POST(req: Request, { params }: { params: { code: string } }) {
   const code = params.code.toUpperCase();
-  const { prompt, total_rounds, game_type } = await req.json().catch(() => ({} as Record<string, unknown>));
+  const { prompt, total_rounds, game_type, takeover } = await req.json().catch(() => ({} as Record<string, unknown>));
   const headerToken = req.headers.get("x-host-token");
   const admin = supabaseAdmin();
   const { data: room } = await admin.from("rooms").select("*").eq("code", code).single();
   if (!room) return NextResponse.json({ error: "no room" }, { status: 404 });
 
-  // Host token enforcement + takeover:
+  // Host token enforcement + explicit takeover:
   // - Original host (token matches): keep stored token, proceed.
-  // - Replacement TV (no token): mint new token, they become host.
-  // - Wrong token: 403.
+  // - Replacement TV: must send { takeover: true } in LOBBY with no/wrong
+  //   token to mint a new one. Bare no-token starts no longer steal hosting
+  //   (any phone knowing the code could otherwise become host + kick).
+  // - Wrong token without takeover flag: 403.
   const storedToken = (room as Record<string, unknown>).host_token as string | null;
   let newHostToken: string | null = null;
   if (storedToken) {
-    if (headerToken && headerToken !== storedToken)
+    if (headerToken && headerToken !== storedToken && takeover !== true)
       return NextResponse.json({ error: "host token mismatch" }, { status: 403 });
-    if (!headerToken) {
+    if ((!headerToken || headerToken !== storedToken) && takeover === true) {
+      if (room.phase !== "LOBBY")
+        return NextResponse.json({ error: "takeover only in LOBBY" }, { status: 403 });
       // Takeover: mint new token so the replacement TV can drive the game.
       newHostToken = makeHostToken();
+    } else if (!headerToken) {
+      return NextResponse.json({ error: "host token required" }, { status: 403 });
     }
   }
 

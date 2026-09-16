@@ -14,7 +14,6 @@
 import { isMuted } from "./sfx";
 
 const VOICE_KEY = "saturday:voice"; // "1" = on, "0" = off. Default on.
-const SARCASM_KEY = "saturday:sarcasm"; // "family" | "savage". Default family.
 const KOKORO_KEY = "saturday:kokoro"; // "1" = try Kokoro, "0" = Tier 1 only. Default on (full swap).
 
 export type LineType = "setup" | "punchline" | "aside" | "roast" | "hype";
@@ -52,21 +51,15 @@ export function setVoiceEnabled(on: boolean): void {
   if (!on) cancelVoice();
 }
 
-export type SarcasmMode = "family" | "savage";
+/** Savage-only: single voice for the whole game. Kept as a type so call
+ * sites don't churn; family bank is gone (see hostPersonality). */
+export type SarcasmMode = "savage";
 
 export function getSarcasmMode(): SarcasmMode {
-  try {
-    return window.localStorage.getItem(SARCASM_KEY) === "savage" ? "savage" : "family";
-  } catch {
-    return "family";
-  }
+  return "savage";
 }
 
-export function setSarcasmMode(mode: SarcasmMode): void {
-  try {
-    window.localStorage.setItem(SARCASM_KEY, mode);
-  } catch {}
-}
+export function setSarcasmMode(): void {}
 
 /** Full-swap rollback: "0" pins Tier 1; env NEXT_PUBLIC_VOICE=tier1 same. */
 export function isKokoroEnabled(): boolean {

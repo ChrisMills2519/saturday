@@ -74,6 +74,19 @@ alter table public.rooms add column if not exists quiz_state jsonb;
 
 create index if not exists rooms_created_at_idx on public.rooms (created_at);
 
+-- Atomic helpers used by the API (were live-only, now checked in so fresh
+-- deploys work). bump_room_seq powers the seq out-of-order guard in useRoom;
+-- increment_vote prevents lost vote tallies under concurrent votes.
+create or replace function public.bump_room_seq(p_code text)
+returns int language sql security definer set search_path = public as $$
+  update public.rooms set seq = seq + 1 where code = p_code returning seq;
+$$;
+
+create or replace function public.increment_vote(p_sub_id bigint)
+returns void language sql security definer set search_path = public as $$
+  update public.submissions set votes = votes + 1 where id = p_sub_id;
+$$;
+
 -- API role grants. Tables created in the SQL Editor are owned by postgres,
 -- but PostgREST serves the anon / authenticated / service_role roles, so a
 -- fresh table answers 403 "permission denied" until granted (hit on `votes`
@@ -88,7 +101,16 @@ grant select, insert, update, delete on public.votes to service_role;
 -- Identity columns allocate from sequences; inserts fail without USAGE.
 grant usage, select on all sequences in schema public to service_role;
 
-grant select on public.rooms to anon, authenticated;
-grant select on public.players to anon, authenticated;
-grant select on public.submissions to anon, authenticated;
-grant select on public.votes to anon, authenticated;
+-- Browser clients must go through API routes (server-authoritative + blind
+-- INPUT/VOTE redaction in roomService.getSnapshot). Direct anon reads would
+-- bypass redaction, so RLS is ON with no anon policies (deny-by-default).
+-- service_role bypasses RLS, so API routes are unaffected. Safe to re-run.
+alter table public.rooms enable row level security;
+alter table public.players enable row level security;
+alter table public.submissions enable row level security;
+alter table public.votes enable row level security;
+
+revoke all on public.rooms from anon, authenticated;
+revoke all on public.players from anon, authenticated;
+revoke all on public.submissions from anon, authenticated;
+revoke all on public.votes from anon, authenticated;
