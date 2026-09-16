@@ -253,3 +253,22 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 **Not done from the audit:** audience mode (late joiners vote at half weight), round history visible on the TV, prompt-pack picker in the lobby, per-phase music beds beyond VOTE (needs new audio), share-card export.
 
 **What's next:** human browser pass (draw mode on a real touchscreen: palm rejection + data URL size, one-at-a-time reveal pacing, ladder bars) → push → Vercel redeploy → phone-on-mobile-data test → audience mode if the living room wants it.
+
+## 2026-09-16 — Sub-agent review sweep: races, recovery, reveals, readability
+
+**What changed (4 parallel review agents → worked the full findings list):**
+- *Races (critical):* new SQL functions `bump_room_seq()` + `increment_vote()` (migration applied live) replace read-then-write in `bumpSeq()` and the vote tally; submit auto-advance is now a conditional write (`.eq("phase","INPUT")`); vote re-reads fresh scores before accumulating and the clean-sweep bonus is idempotent; room create retries 4-char code collisions (5 attempts); `makeHostToken()` uses `crypto.randomUUID()`.
+- *Security:* `submit` + `vote` 403 phantom `session_id`s not in the `players` table; `/api/cleanup` fails closed (401) when `CRON_SECRET` is unset (was open); `start` enforces the stored token on match/mismatch and **mints a new token on tokenless start (takeover)** — returns `host_token`, host page saves it and enables host UI, so a replacement TV can drive after a laptop death.
+- *Empty rounds:* host auto-advance now requires ≥2 submissions (INPUT→REVEAL) / ≥1 vote (VOTE→SCORE), else surfaces a host prompt instead of marching through content-less phases; manual host buttons still free.
+- *Authorship reveal (biggest laugh):* SCORE snapshot gains `votes_detail` (SCORE-only, VOTE stays blind); TV shows a "who wrote what" recap grid with per-answer voter names + house awards (crowd favorite / dark horse / novelist / minimalist); phones get a compact recap and the stale prompt hero is replaced with a results header.
+- *Phones:* landing join/create errors render inline (no more silent re-enable, busy labels, disabled empty join); 404 dead-room screens on `/host` + `/play` with a way home; textarea gets `autoCorrect off / spellCheck false / autoCapitalize off / enterKeyHint send` + Cmd/Ctrl+Enter submit; 0.18s phase transition; times-up buzz only when the player still owes an answer/vote; `codePill` dark-on-pink for contrast; error reds unified.
+- *DrawPad:* failed submit returns `false` so the button re-enables for retry; palm rejection (active `pointerId`); `pointercancel` handled; blank canvas can't submit ("Draw something first"); swatches 40px / tools 44px; green unified to `THEME.teal`.
+- *TV:* reveal pace toggle (auto-slide on/off; reduced-motion is now manual-tap, no instant dump); answer text is display font with `clamp()`; headlines + code scale with `clamp()` and wrap cap 1200→1400; podium bars grow via `scaleY` and TimerBar via `scaleX` (GPU-only rule honored); extend disabled at ≤2s + bar total tracks extends; kick buttons on INPUT cards (mid-game prune); lobby custom-prompt input wired to `start`; 2-player lobby copy fixed; bonus round extends `total_rounds` (no more "Round 4 of 3").
+
+**Why:** four review agents (UX, API/engine, visual, Jackbox-competitive) found dead first-run errors, a permanently-stuck tokenless TV, self-playing empty rounds, missing authorship payoff, atomicity holes, and TV/phone readability gaps. All fixes stay inside AGENTS.md invariants.
+
+**Verified:** `typecheck` clean, `build` green (host 8.22 / play 6.7 kB, 12 API routes). **24/24 live API checks** (`/tmp/opencode/review_checks.mjs` + phantom follow-up): takeover mints token + old token 403s, phantom submit/vote 403 in-phase, self/double-vote 400, auto REVEAL/SCORE, `votes_detail` at SCORE only, INPUT redaction intact, cleanup 401 unauth, pages `/ /host /play /preview` all 200. Smoke-test rooms deleted; no stray server.
+
+**Not done:** audience mode, prompt-pack picker, per-phase music beds, share-card export, Fibbage/trivia mechanics, two-prompt choice, TTS announcer, onboarding tutorial (see 2026-09-15 audit + 2026-09-16 reviews).
+
+**What's next:** push → Vercel redeploy → phone-on-mobile-data test → human browser pass (touch DrawPad, reveal pacing, SCORE recap readability).

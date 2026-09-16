@@ -1,14 +1,12 @@
 import { supabaseAdmin } from "@/lib/supabase";
 
-// Monotonic bump per mutation. Read-then-write is fine for party scale
-// (a handful of phones, one room); the column exists so clients can
-// drop out-of-order broadcasts, not for strict serialization.
+// Atomic monotonic bump per mutation via SQL function.
+// Prevents lost increments under concurrent mutations (two players
+// submitting at the same instant).
 export async function bumpSeq(code: string): Promise<number> {
   const admin = supabaseAdmin();
-  const { data: room } = await admin.from("rooms").select("seq").eq("code", code).single();
-  const next = ((room?.seq as number) ?? 0) + 1;
-  await admin.from("rooms").update({ seq: next }).eq("code", code);
-  return next;
+  const { data } = await admin.rpc("bump_room_seq", { p_code: code });
+  return (data as number) ?? 0;
 }
 
 function safeArray(j: unknown): string[] {
@@ -44,6 +42,17 @@ export async function getSnapshot(code: string) {
       ? rows.map((s) => ({ ...s, votes: 0 }))
       : rows;
   const voted = rows.reduce((n, s) => n + (s.votes ?? 0), 0);
+  // Who-voted-for-who is only exposed at SCORE (VOTE stays blind). Powers the
+  // TV "who picked what" recap + awards without leaking live tallies.
+  let votesDetail: { voter_session: string; target_session: string }[] = [];
+  if (room.phase === "SCORE") {
+    const { data: voteRows } = await admin
+      .from("votes")
+      .select("voter_session,target_session")
+      .eq("room_code", code)
+      .eq("round", room.current_round);
+    votesDetail = (voteRows ?? []) as { voter_session: string; target_session: string }[];
+  }
   const inputTotal = (room.input_total as number | null) ?? null;
   // Denominator during INPUT/VOTE should be the frozen input_total when present,
   // but keep live total for LOBBY/SCORE so rematch/join counts feel immediate.
@@ -65,6 +74,7 @@ export async function getSnapshot(code: string) {
     submissions: subs,
     counts: { submitted: rows.length, voted, total: denom, input_total: inputTotal },
     scores: voteBlind ? {} : (room.scores ?? {}),
+    votes_detail: votesDetail,
     round_history: safeMap((room as unknown as Record<string, unknown>).round_history),
     used_prompts: safeArray((room as unknown as Record<string, unknown>).used_prompts),
   };

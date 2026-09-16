@@ -19,6 +19,12 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   if (!room) return NextResponse.json({ error: "no room" }, { status: 404 });
   if (room.phase !== "VOTE")
     return NextResponse.json({ error: `vote only in VOTE (now ${room.phase})` }, { status: 400 });
+
+  // Validate that the voter is actually a player in this room.
+  const { data: voter } = await admin
+    .from("players").select("session_id").eq("room_code", code).eq("session_id", session_id).single();
+  if (!voter) return NextResponse.json({ error: "not a player in this room" }, { status: 403 });
+
   const { data: sub } = await admin
     .from("submissions")
     .select("*")
@@ -48,7 +54,8 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     if (!/votes|42P01|42703|PGRST/i.test(msg)) throw e;
   }
 
-  await admin.from("submissions").update({ votes: (sub.votes ?? 0) + 1 }).eq("id", sub.id);
+  // Atomic vote tally: uses SQL function to prevent lost updates under concurrency.
+  await admin.rpc("increment_vote", { p_sub_id: sub.id });
 
   const { data: players } = await admin.from("players").select("session_id,name").eq("room_code", code);
   const totalPlayers = (players ?? []).length;
@@ -56,10 +63,10 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   const tr = (room.total_rounds as number | null) ?? 3;
   const isFinal = rr >= tr;
   const pts = voteWorth(totalPlayers, isFinal);
-  // The clean-sweep kicker is awarded below, once every player has voted and we
-  // can see the final tally (everyone else picked the same answer).
 
-  const raw = (room.scores ?? {}) as Record<string, number>;
+  // Read current scores fresh to minimize race window on score accumulation.
+  const { data: freshRoom } = await admin.from("rooms").select("scores,round_history").eq("code", code).single();
+  const raw = ((freshRoom?.scores ?? {}) as Record<string, number>);
   const scores: Record<string, number> = {};
   const byName = new Map((players ?? []).map((p) => [p.name, p.session_id]));
   for (const [k, v] of Object.entries(raw)) {
@@ -69,7 +76,7 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   scores[target_session] = (scores[target_session] ?? 0) + pts;
 
   // Per-round delta for phone history + host MVP.
-  const rhRaw = ((room as Record<string, unknown>).round_history as Record<string, Record<string, number>> | null) ?? {};
+  const rhRaw = ((freshRoom as Record<string, unknown>)?.round_history as Record<string, Record<string, number>> | null) ?? {};
   const roundHist: Record<string, Record<string, number>> = typeof rhRaw === "object" && !Array.isArray(rhRaw) ? { ...rhRaw } : {};
   const key = String(rr);
   roundHist[key] = { ...(roundHist[key] ?? {}) };
@@ -97,17 +104,23 @@ export async function POST(req: Request, { params }: { params: { code: string } 
       // unanimous: one answer has all votes
       const maxRow = rows.reduce<VoteRow | null>((m, r) => (!m || (r.votes ?? 0) > (m.votes ?? 0) ? r : m), null);
       if (maxRow && isCleanSweep(maxRow.votes ?? 0, totalPlayers)) {
-        const fresh = await admin.from("rooms").select("scores, round_history").eq("code", code).single();
-        const curScores = (fresh.data?.scores as Record<string, number> | null) ?? scores;
-        const curHist = ((fresh.data as Record<string, unknown>)?.round_history as Record<string, Record<string, number>> | null) ?? roundHist;
-        curScores[maxRow.player_session] = (curScores[maxRow.player_session] ?? 0) + UNANIMOUS_BONUS;
-        const rh2: Record<string, Record<string, number>> = typeof curHist === "object" && !Array.isArray(curHist) ? { ...curHist } : {};
-        rh2[key] = { ...(rh2[key] ?? {}) };
-        rh2[key][maxRow.player_session] = (rh2[key][maxRow.player_session] ?? 0) + UNANIMOUS_BONUS;
-        try {
-          await admin.from("rooms").update({ scores: curScores, round_history: rh2, phase: "SCORE", ends_at: null, input_total: null }).eq("code", code);
-        } catch {
-          await admin.from("rooms").update({ scores: curScores, phase: "SCORE", ends_at: null }).eq("code", code);
+        // Re-read fresh scores to avoid double-counting the bonus under concurrency.
+        const { data: fresh2 } = await admin.from("rooms").select("scores, round_history").eq("code", code).single();
+        const curScores = (fresh2?.scores as Record<string, number> | null) ?? scores;
+        const curHist = ((fresh2 as Record<string, unknown>)?.round_history as Record<string, Record<string, number>> | null) ?? roundHist;
+        // Only award bonus if not already awarded (idempotent check).
+        if (!curScores[maxRow.player_session] || curScores[maxRow.player_session] < (scores[maxRow.player_session] ?? 0) + UNANIMOUS_BONUS) {
+          curScores[maxRow.player_session] = (curScores[maxRow.player_session] ?? 0) + UNANIMOUS_BONUS;
+          const rh2: Record<string, Record<string, number>> = typeof curHist === "object" && !Array.isArray(curHist) ? { ...curHist } : {};
+          rh2[key] = { ...(rh2[key] ?? {}) };
+          rh2[key][maxRow.player_session] = (rh2[key][maxRow.player_session] ?? 0) + UNANIMOUS_BONUS;
+          try {
+            await admin.from("rooms").update({ scores: curScores, round_history: rh2, phase: "SCORE", ends_at: null, input_total: null }).eq("code", code);
+          } catch {
+            await admin.from("rooms").update({ scores: curScores, phase: "SCORE", ends_at: null }).eq("code", code);
+          }
+        } else {
+          await admin.from("rooms").update({ phase: "SCORE", ends_at: null, input_total: null }).eq("code", code);
         }
         await bumpSeq(code);
         await broadcastRoom(code, await getSnapshot(code));

@@ -25,6 +25,11 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   const patch: Record<string, unknown> = { phase: to as string };
   if (to === "INPUT") {
     patch.current_round = (room.current_round ?? 0) + 1;
+    // Bonus round off the final SCORE ("One more round"): extend the game's
+    // length so the header reads "Round N of N" instead of "Round 4 of 3".
+    const tr = (room.total_rounds as number | null) ?? 3;
+    const cur = patch.current_round as number;
+    if (cur > tr) patch.total_rounds = cur;
     const gt = (game_type as string) === "draw" ? "draw" : (game_type as string) === "text" ? "text" : (room.game_type as string) ?? "text";
     patch.game_type = gt;
     if (typeof prompt === "string" && prompt.trim().length > 1) {

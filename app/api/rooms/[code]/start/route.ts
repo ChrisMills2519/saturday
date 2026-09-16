@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { canTransition, INPUT_SECONDS, type Phase } from "@/lib/gameEngine";
+import { canTransition, INPUT_SECONDS, makeHostToken, type Phase } from "@/lib/gameEngine";
 import { nextTextPrompt, nextDrawPrompt, hintForPrompt } from "@/lib/prompts";
 import { drawHintFor } from "@/lib/prompts_draw";
 import { supabaseAdmin, broadcastRoom } from "@/lib/supabase";
@@ -13,14 +13,22 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   const admin = supabaseAdmin();
   const { data: room } = await admin.from("rooms").select("*").eq("code", code).single();
   if (!room) return NextResponse.json({ error: "no room" }, { status: 404 });
-  // LOBBY is the only phase start can run in, so the token is advisory here
-  // (a replacement TV must be able to kick the game off). Enforced after start.
-  if (
-    headerToken &&
-    (room as Record<string, unknown>).host_token &&
-    headerToken !== (room as Record<string, unknown>).host_token
-  )
-    return NextResponse.json({ error: "host token mismatch" }, { status: 403 });
+
+  // Host token enforcement + takeover:
+  // - Original host (token matches): keep stored token, proceed.
+  // - Replacement TV (no token): mint new token, they become host.
+  // - Wrong token: 403.
+  const storedToken = (room as Record<string, unknown>).host_token as string | null;
+  let newHostToken: string | null = null;
+  if (storedToken) {
+    if (headerToken && headerToken !== storedToken)
+      return NextResponse.json({ error: "host token mismatch" }, { status: 403 });
+    if (!headerToken) {
+      // Takeover: mint new token so the replacement TV can drive the game.
+      newHostToken = makeHostToken();
+    }
+  }
+
   if (!canTransition(room.phase as Phase, "INPUT"))
     return NextResponse.json({ error: `bad transition ${room.phase} -> INPUT` }, { status: 400 });
   // Voting needs someone else to vote for: solo starts would dead-end at VOTE.
@@ -59,30 +67,29 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     current_round: (room.current_round ?? 0) + 1,
     input_total: playerCount ?? 0,
     used_prompts: nextUsed,
-    // Host may set length while still in LOBBY; clamped 1-9.
     ...(typeof total_rounds === "number" && Number.isFinite(total_rounds)
       ? { total_rounds: Math.min(9, Math.max(1, Math.floor(total_rounds))) }
       : {}),
+    ...(newHostToken ? { host_token: newHostToken } : {}),
   };
   let { error } = await admin.from("rooms").update(patch).eq("code", code);
   // Fallback when new columns haven't been migrated live yet.
   if (error?.message?.match?.(/prompt_hint|used_prompts|input_total|game_type/i)) {
-    const { error: e2 } = await admin
-      .from("rooms")
-      .update({
-        phase: "INPUT",
-        prompt: nextPrompt,
-        ends_at: endsAt,
-        current_round: (room.current_round ?? 0) + 1,
-        ...(typeof total_rounds === "number" && Number.isFinite(total_rounds)
-          ? { total_rounds: Math.min(9, Math.max(1, Math.floor(total_rounds))) }
-          : {}),
-      })
-      .eq("code", code);
+    const fallback: Record<string, unknown> = {
+      phase: "INPUT",
+      prompt: nextPrompt,
+      ends_at: endsAt,
+      current_round: (room.current_round ?? 0) + 1,
+      ...(newHostToken ? { host_token: newHostToken } : {}),
+      ...(typeof total_rounds === "number" && Number.isFinite(total_rounds)
+        ? { total_rounds: Math.min(9, Math.max(1, Math.floor(total_rounds))) }
+        : {}),
+    };
+    const { error: e2 } = await admin.from("rooms").update(fallback).eq("code", code);
     error = e2;
   }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   await bumpSeq(code);
   await broadcastRoom(code, await getSnapshot(code));
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, ...(newHostToken ? { host_token: newHostToken } : {}) });
 }

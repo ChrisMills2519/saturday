@@ -1,23 +1,26 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { phoneBtn } from "@/lib/theme";
+import { THEME, phoneBtn } from "@/lib/theme";
 
 // Drawful-style pad. One brush, three sizes, undo, clear — submits ONCE
 // as a data URL (no per-stroke streaming, per AGENTS.md).
 const W = 480;
 const H = 360;
-const COLORS = ["#111111", "#ff2e9a", "#7c3aed", "#22cc88", "#ffcf0d", "#2b7fff", "#ffffff"];
+const COLORS = ["#111111", "#ff2e9a", "#7c3aed", THEME.teal, "#ffcf0d", "#2b7fff", "#ffffff"];
 
 export function DrawPad({
   disabled,
   onDone,
 }: {
   disabled?: boolean;
-  onDone: (dataUrl: string) => void;
+  // Return false when the submit failed (network / too large) so the pad
+  // can re-enable the button for a retry instead of sticking on "Sending…".
+  onDone: (dataUrl: string) => Promise<boolean | void> | boolean | void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawing = useRef(false);
+  const activePointer = useRef<number | null>(null);
   const last = useRef<{ x: number; y: number } | null>(null);
   const [color, setColor] = useState("#111111");
   const [size, setSize] = useState(7);
@@ -50,14 +53,18 @@ export function DrawPad({
   }
 
   function down(e: React.PointerEvent<HTMLCanvasElement>) {
-    if (disabled) return;
+    if (disabled || busy) return;
+    // Palm rejection: ignore a second simultaneous pointer (resting palm).
+    if (drawing.current) return;
     e.currentTarget.setPointerCapture?.(e.pointerId);
     snapshot();
     drawing.current = true;
+    activePointer.current = e.pointerId;
     last.current = pos(e);
   }
   function move(e: React.PointerEvent<HTMLCanvasElement>) {
     if (!drawing.current || disabled) return;
+    if (activePointer.current !== null && e.pointerId !== activePointer.current) return;
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx || !last.current) return;
     const p = pos(e);
@@ -70,8 +77,10 @@ export function DrawPad({
     last.current = p;
     setCount((n) => n + 1);
   }
-  function up() {
+  function up(e?: React.PointerEvent<HTMLCanvasElement>) {
+    if (e && activePointer.current !== null && e.pointerId !== activePointer.current) return;
     drawing.current = false;
+    activePointer.current = null;
     last.current = null;
   }
 
@@ -101,16 +110,24 @@ export function DrawPad({
 
   async function submit() {
     const c = canvasRef.current;
-    if (!c) return;
+    if (!c || count === 0) return;
     setBusy(true);
-    let url = c.toDataURL("image/png");
-    if (url.length > 500_000) url = c.toDataURL("image/jpeg", 0.6);
-    onDone(url);
+    try {
+      let url = c.toDataURL("image/png");
+      if (url.length > 500_000) url = c.toDataURL("image/jpeg", 0.6);
+      const r = await onDone(url);
+      // Parent returns false on failure → re-enable so the player can retry.
+      if (r === false) setBusy(false);
+    } catch {
+      setBusy(false);
+    }
   }
+
+  const blank = count === 0;
 
   return (
     <div style={{ marginTop: 8 }}>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
         {COLORS.map((c) => (
           <button
             key={c}
@@ -118,8 +135,8 @@ export function DrawPad({
             aria-label={`Brush ${c}`}
             aria-pressed={color === c}
             style={{
-              width: 30,
-              height: 30,
+              width: 40,
+              height: 40,
               borderRadius: 999,
               background: c,
               border: color === c ? "3px solid #ffcf0d" : "3px solid #111",
@@ -129,7 +146,7 @@ export function DrawPad({
           />
         ))}
       </div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
         {[3, 7, 14].map((s) => (
           <button
             key={s}
@@ -137,8 +154,8 @@ export function DrawPad({
             aria-pressed={size === s}
             aria-label={`Brush size ${s}`}
             style={{
-              width: 38,
-              height: 34,
+              width: 48,
+              height: 44,
               borderRadius: 10,
               background: "#fff",
               border: size === s ? "3px solid #7c3aed" : "3px solid #111",
@@ -160,7 +177,8 @@ export function DrawPad({
         onPointerDown={down}
         onPointerMove={move}
         onPointerUp={up}
-        onPointerLeave={up}
+        onPointerLeave={() => up()}
+        onPointerCancel={() => up()}
         style={{
           width: "100%",
           maxWidth: 480,
@@ -175,23 +193,23 @@ export function DrawPad({
         }}
       />
       <p style={{ fontSize: 13, opacity: 0.65, margin: "6px 0 0" }}>
-        {count === 0 ? "Finger-paint it. Stick figures win hearts." : "Looks great. Send it before the clock dies."}
+        {blank ? "Finger-paint it. Stick figures win hearts." : "Looks great. Send it before the clock dies."}
       </p>
-      <motion.button whileTap={{ scale: 0.96 }} onClick={submit} disabled={disabled || busy} style={{ ...phoneBtn, padding: 16, fontSize: 22, marginTop: 8 }}>
-        {busy ? "Sending…" : "Submit drawing"}
+      <motion.button whileTap={{ scale: 0.96 }} onClick={submit} disabled={disabled || busy || blank} style={{ ...phoneBtn, padding: 16, fontSize: 22, marginTop: 8, opacity: blank ? 0.55 : 1 }}>
+        {busy ? "Sending…" : blank ? "Draw something first" : "Submit drawing"}
       </motion.button>
     </div>
   );
 }
 
 const smallBtn: React.CSSProperties = {
-  padding: "6px 12px",
-  fontSize: 14,
+  padding: "6px 14px",
+  fontSize: 15,
   fontWeight: 800,
   borderRadius: 10,
   border: "3px solid #111",
   background: "#fff",
   color: "#111",
   cursor: "pointer",
-  minHeight: 34,
+  minHeight: 44,
 };

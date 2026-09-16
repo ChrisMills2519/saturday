@@ -17,6 +17,7 @@ export type RoomSnapshot = {
   submissions: { player_session: string; text_content: string | null; image_url: string | null; votes: number }[];
   counts: { submitted: number; voted: number; total: number; input_total: number | null };
   scores: Record<string, number>;
+  votes_detail: { voter_session: string; target_session: string }[];
   round_history: Record<string, Record<string, number>>;
   used_prompts: string[];
 };

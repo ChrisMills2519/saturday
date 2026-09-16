@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { motion, type Variants } from "motion/react";
+import { motion, type Variants, useReducedMotion } from "motion/react";
 import { getSessionId } from "@/lib/gameEngine";
 import { setHostToken } from "@/lib/hostToken";
 import { THEME, DISPLAY_FONT, IMAGES } from "@/lib/theme";
@@ -26,18 +26,20 @@ export default function Home() {
   const [name, setName] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const reduce = useReducedMotion();
 
   async function createRoom() {
+    setError(null);
     setBusy(true);
     try {
       const res = await fetch("/api/rooms", { method: "POST" });
       const room = await res.json();
       if (!res.ok) throw new Error(room.error);
-      // Keep the host token on this device so only the TV can drive the game
-      // (start/next/kick/extend) once the round begins.
       if (room.host_token) setHostToken(room.code, room.host_token);
-      // Creator opens the TV host view; players scan/join via /play/[code].
       router.push(`/host/${room.code}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't create game — try again.");
     } finally {
       setBusy(false);
     }
@@ -45,6 +47,7 @@ export default function Home() {
 
   async function joinRoom() {
     if (!code.trim() || !name.trim()) return;
+    setError(null);
     setBusy(true);
     try {
       const res = await fetch(`/api/rooms/${code.trim().toUpperCase()}/join`, {
@@ -55,6 +58,8 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       router.push(`/play/${code.trim().toUpperCase()}?name=${encodeURIComponent(name.trim())}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't join — check the code and try again.");
     } finally {
       setBusy(false);
     }
@@ -91,7 +96,7 @@ export default function Home() {
             transition={{ duration: 0.15 }}
             style={primaryBtn}
           >
-            Create Game
+            {busy ? "Creating…" : "Create Game"}
           </motion.button>
         </motion.div>
 
@@ -114,20 +119,21 @@ export default function Home() {
             autoCorrect="off"
             spellCheck={false}
             inputMode="text"
-            whileFocus={{ scale: [1, 1.02, 1] }}
+            whileFocus={reduce ? undefined : { scale: [1, 1.02, 1] }}
             transition={{ duration: 0.18 }}
             style={{ ...input, textTransform: "uppercase" }}
           />
           <motion.button
             onClick={joinRoom}
-            disabled={busy}
+            disabled={busy || !code.trim() || !name.trim()}
             whileHover={{ scale: 1.04 }}
             whileTap={{ scale: 0.97 }}
             transition={{ duration: 0.15 }}
             style={secondaryBtn}
           >
-            Join Game
+            {busy ? "Joining…" : "Join Game"}
           </motion.button>
+          {error && <p role="alert" style={{ color: "#f87171", fontSize: 16, fontWeight: 700, marginTop: 8, textAlign: "center" }}>{error}</p>}
         </motion.section>
       </div>
     </motion.main>

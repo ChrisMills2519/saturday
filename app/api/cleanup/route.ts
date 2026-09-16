@@ -7,9 +7,10 @@ export const dynamic = "force-dynamic";
 
 function isAuthorized(req: Request): boolean {
   const expected = process.env.CRON_SECRET;
-  // No secret configured (local dev): allow. In prod Vercel env CRON_SECRET
-  // must be set — Vercel Cron sends `Authorization: Bearer <CRON_SECRET>`.
-  if (!expected) return true;
+  // No secret configured: FAIL CLOSED. In production CRON_SECRET must be
+  // set — without it the endpoint is unauthenticated and could wipe all rooms.
+  // Local dev: set CRON_SECRET in .env.local to test.
+  if (!expected) return false;
   const header = req.headers.get("authorization");
   return header === `Bearer ${expected}`;
 }

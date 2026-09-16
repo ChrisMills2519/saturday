@@ -68,6 +68,7 @@ function PlayInner({ code }: { code: string }) {
   const [submitErr, setSubmitErr] = useState<string | null>(null);
   const [joinErr, setJoinErr] = useState<string | null>(null);
   const [joinBusy, setJoinBusy] = useState(false);
+  const [deadRoom, setDeadRoom] = useState(false);
   const [editing, setEditing] = useState(false);
   const [savedAnswer, setSavedAnswer] = useState("");
   const [sid] = useState(() => getSessionId());
@@ -78,8 +79,15 @@ function PlayInner({ code }: { code: string }) {
 
   useEffect(() => {
     fetch(`/api/rooms/${code}`, { cache: "no-store" })
-      .then((r) => r.json())
+      .then((r) => {
+        if (r.status === 404) {
+          setDeadRoom(true);
+          return null;
+        }
+        return r.json();
+      })
       .then((snap) => {
+        if (!snap) return;
         if (snap && typeof snap.current_round !== "number") snap.current_round = 0;
         if (snap && typeof snap.total_rounds !== "number") snap.total_rounds = 3;
         setInitial(snap);
@@ -145,12 +153,19 @@ function PlayInner({ code }: { code: string }) {
     setText("");
   }, [room?.phase, code, round]);
 
-  // Countdown ticks (last 5s) + times-up buzz. Local only, from ends_at.
+  // Countdown ticks (last 5s) + times-up buzz — but only when the player still
+  // owes something. A voter who already locked in shouldn't get a failure buzz.
+  // Refs avoid stale closures: the effect below only re-runs when `left` ticks.
+  const mySubNow = room?.submissions.find((s) => s.player_session === sid) ?? null;
+  const owesRef = useRef(false);
+  owesRef.current =
+    (room?.phase === "INPUT" && !mySubNow) ||
+    (room?.phase === "VOTE" && !voted);
   useEffect(() => {
     if (left === null || left === lastLeft.current) return;
     lastLeft.current = left;
     if (left <= 5 && left > 0) tick(left);
-    if (left === 0) {
+    if (left === 0 && owesRef.current) {
       timesUp();
       buzz();
     }
@@ -235,6 +250,7 @@ function PlayInner({ code }: { code: string }) {
   async function submitDrawing(dataUrl: string) {
     const ok = await sendAnswer({ image_url: dataUrl });
     if (ok) setText("");
+    return ok;
   }
 
   async function vote(player_session: string) {
@@ -264,7 +280,18 @@ function PlayInner({ code }: { code: string }) {
         <Mascot src={IMAGES.lobby} alt="Host" size={140} />
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" style={input} aria-label="Your name" />
         <motion.button whileTap={{ scale: 0.97 }} onClick={join} disabled={joinBusy} style={btn}>{joinBusy ? "Joining…" : "Join"}</motion.button>
-        {joinErr && <p role="alert" style={{ color: "#f87171" }}>{joinErr}</p>}
+        {joinErr && <p role="alert" style={{ color: "#ff8a8a" }}>{joinErr}</p>}
+      </main>
+    );
+  }
+
+  if (deadRoom) {
+    return (
+      <main style={{ ...stageBg, ...wrap, textAlign: "center" }}>
+        <p style={codePill}>{code}</p>
+        <h1 style={phoneTitle}>Room not found</h1>
+        <p style={{ opacity: 0.8, fontWeight: 700 }}>This code doesn&apos;t exist or expired. Double-check it, or start a new game.</p>
+        <a href="/" style={{ ...btn, textDecoration: "none", textAlign: "center" }}>Back home</a>
       </main>
     );
   }
@@ -296,7 +323,7 @@ function PlayInner({ code }: { code: string }) {
   return (
     <main style={{ ...stageBg, ...wrap }}>
       <p style={codePill} aria-live="polite" role="status">{code} · {PHASE_STATUS[room.phase] ?? room.phase}</p>
-      <h1 style={promptCard}>{room.prompt ?? `Room ${code} — waiting…`}</h1>
+      <h1 style={promptCard}>{room.phase === "SCORE" ? (final ? FINAL_TITLE : "Results are in") : (room.prompt ?? `Room ${code} — waiting…`)}</h1>
       {left !== null && (
         <motion.p
           role="timer"
@@ -304,13 +331,21 @@ function PlayInner({ code }: { code: string }) {
           aria-live="off"
           animate={urgent && !reduce ? { x: [0, -6, 6, -4, 4, 0], scale: [1, 1.08, 1] } : { x: 0, scale: 1 }}
           transition={{ duration: 0.5, repeat: urgent && !reduce ? Infinity : 0, repeatDelay: 1 }}
-          style={{ fontSize: 22, fontWeight: 800, color: urgent ? "#f87171" : undefined, display: "flex", alignItems: "center", gap: 8 }}
+          style={{ fontSize: 22, fontWeight: 800, color: urgent ? "#ff8a8a" : undefined, display: "flex", alignItems: "center", gap: 8 }}
         >
           <TimerIcon size={24} /> {left}s {urgent ? "— HURRY!" : ""}
         </motion.p>
       )}
       <p style={{ opacity: 0.75, fontWeight: 700 }} aria-live="polite" role="status">{PHASE_STATUS[room.phase] ?? room.phase}</p>
 
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={`${room.phase}-${round}`}
+          initial={reduce ? { opacity: 0 } : { opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={reduce ? { opacity: 0 } : { opacity: 0, y: -14 }}
+          transition={{ duration: 0.18 }}
+        >
       {room.phase === "LOBBY" && (
         <div style={doneCard}>
           <p style={{ fontSize: 22, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
@@ -335,9 +370,19 @@ function PlayInner({ code }: { code: string }) {
               <motion.textarea
                 value={text}
                 onChange={(e) => onText(e.target.value)}
+                onKeyDown={(e) => {
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                    e.preventDefault();
+                    void submit();
+                  }
+                }}
                 placeholder={room.prompt_hint ?? "Your answer…"}
                 rows={4}
                 maxLength={MAX_LEN}
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                enterKeyHint="send"
                 whileFocus={reduce ? undefined : { scale: 1.02 }}
                 style={input}
               />
@@ -347,7 +392,6 @@ function PlayInner({ code }: { code: string }) {
               <motion.button
                 onClick={submit}
                 whileTap={{ scale: 0.95 }}
-                animate={{ backgroundColor: "#7c3aed" }}
                 style={btn}
               >
                 {editing ? "Save changes" : "Submit answer"}
@@ -359,7 +403,7 @@ function PlayInner({ code }: { code: string }) {
               )}
             </>
           )}
-          {submitErr && <p style={{ color: "#f87171" }}>{submitErr}</p>}
+          {submitErr && <p style={{ color: "#ff8a8a" }}>{submitErr}</p>}
         </>
       )}
 
@@ -444,7 +488,7 @@ function PlayInner({ code }: { code: string }) {
               </motion.button>
             ))
           )}
-          {voteErr && <p style={{ color: "#f87171" }}>{voteErr}</p>}
+          {voteErr && <p style={{ color: "#ff8a8a" }}>{voteErr}</p>}
         </>
       )}
 
@@ -472,9 +516,28 @@ function PlayInner({ code }: { code: string }) {
               </li>
             ))}
           </ul>
+          {room.submissions.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <p style={{ fontSize: 16, fontWeight: 800, letterSpacing: 1, opacity: 0.85 }}>WHO WROTE WHAT</p>
+              <ul style={{ listStyle: "none", padding: 0 }}>
+                {room.submissions
+                  .slice()
+                  .sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0))
+                  .map((s) => (
+                    <li key={s.player_session} style={{ ...scoreLi, fontSize: 17 }}>
+                      <span style={{ color: "#7c3aed" }}>{nameOf(room, s.player_session)}</span>
+                      {" — “"}{s.image_url ? "(drawing)" : s.text_content}{"”"}
+                      <span style={{ opacity: 0.7 }}> · {s.votes ?? 0} {s.votes === 1 ? "vote" : "votes"}</span>
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          )}
           {final && <p style={{ opacity: 0.7 }}>{FINAL_SUB} Rematch? Hang tight — the host is setting it up.</p>}
         </>
       )}
+        </motion.div>
+      </AnimatePresence>
     </main>
   );
 }
@@ -486,7 +549,7 @@ function ordinal(n: number): string {
 }
 
 const wrap: React.CSSProperties = { padding: 20, maxWidth: 520, margin: "0 auto", minHeight: "100dvh", color: "#fff" };
-const codePill: React.CSSProperties = { display: "inline-block", fontFamily: DISPLAY_FONT, fontSize: 15, letterSpacing: 2, background: THEME.pink, color: "#fff", border: "3px solid #111", borderRadius: 999, padding: "6px 14px", boxShadow: "3px 3px 0 #111", margin: "0 0 10px" };
+const codePill: React.CSSProperties = { display: "inline-block", fontFamily: DISPLAY_FONT, fontSize: 15, letterSpacing: 2, background: THEME.pink, color: "#111", border: "3px solid #111", borderRadius: 999, padding: "6px 14px", boxShadow: "3px 3px 0 #111", margin: "0 0 10px" };
 const phoneTitle: React.CSSProperties = { fontFamily: DISPLAY_FONT, fontSize: 40, color: THEME.yellow, margin: "8px 0", textShadow: "-2px -2px 0 #111, 2px -2px 0 #111, -2px 2px 0 #111, 2px 2px 0 #111" };
 const promptCard: React.CSSProperties = { ...answerCard, fontSize: 24, padding: "16px 18px", margin: "8px 0" };
 const input: React.CSSProperties = { display: "block", width: "100%", boxSizing: "border-box", padding: 16, fontSize: 20, fontWeight: 700, borderRadius: 14, margin: "12px 0", border: "3px solid #111", background: "#fff", color: "#111", outline: "none", minHeight: 56 };

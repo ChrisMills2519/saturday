@@ -19,6 +19,12 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   if (!room) return NextResponse.json({ error: "no room" }, { status: 404 });
   if (room.phase !== "INPUT")
     return NextResponse.json({ error: `submit only in INPUT (now ${room.phase})` }, { status: 400 });
+
+  // Validate that the submitter is actually a player in this room.
+  const { data: player } = await admin
+    .from("players").select("session_id").eq("room_code", code).eq("session_id", session_id).single();
+  if (!player) return NextResponse.json({ error: "not a player in this room" }, { status: 403 });
+
   const { error } = await admin.from("submissions").upsert(
     { room_code: code, round: room.current_round, player_session: session_id, text_content: cleanText ?? null, image_url: image_url ? String(image_url) : null },
     { onConflict: "room_code,round,player_session" }
@@ -26,13 +32,13 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   // Instant advance: when everyone has submitted, stop the clock and flip
   // to REVEAL server-authoritatively (host timer stays as fallback for
-  // partial submits). Re-read counts after upsert so concurrent submits race
-  // safely; losers get a harmless bad-transition no-op on the timer path.
+  // partial submits). Conditional WHERE prevents clobbering a concurrent
+  // timer-initiated phase change.
   const snap = await getSnapshot(code);
   const submitted = snap?.counts?.submitted ?? 0;
   const total = snap?.counts?.total ?? 0;
   if (snap?.phase === "INPUT" && total >= 2 && submitted >= total && canTransition("INPUT", "REVEAL")) {
-    await admin.from("rooms").update({ phase: "REVEAL", ends_at: null, input_total: null }).eq("code", code);
+    await admin.from("rooms").update({ phase: "REVEAL", ends_at: null, input_total: null }).eq("code", code).eq("phase", "INPUT");
   }
   await bumpSeq(code);
   await broadcastRoom(code, await getSnapshot(code));

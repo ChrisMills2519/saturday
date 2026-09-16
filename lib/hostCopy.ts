@@ -10,6 +10,7 @@ export const LOBBY_TITLE = "Get in here!";
 export const LOBBY_SUB = "Join on your phone. First round starts when the host says so.";
 export const LOBBY_EMPTY = "Nobody yet. Shout the code across the room.";
 export function lobbyReady(n: number): string {
+  if (n === 2) return "Two in! Each of you votes for the other — 3+ is where the bloodsport starts.";
   if (n < 3) return `${n} in — grab one more human to make voting work.`;
   return `${n} humans, 1 TV. Everybody in? Start!`;
 }
@@ -76,6 +77,19 @@ export function drawingLabel(): string {
 }
 export const FINAL_TITLE = "Final results!";
 export const FINAL_SUB = "Champion crowned. Rematch, or quit while you're behind.";
+export const AWARDS_TITLE = "House awards";
+export function awardCrowdFavorite(name: string): string {
+  return `Crowd favorite: ${name} — the room has spoken.`;
+}
+export function awardDarkHorse(name: string): string {
+  return `Dark horse: ${name} — one brave vote. Respect.`;
+}
+export function awardNovelist(name: string): string {
+  return `Novelist: ${name} — used every last character.`;
+}
+export function awardMinimalist(name: string): string {
+  return `Minimalist: ${name} — said it in the fewest words.`;
+}
 export const REMATCH_LABEL = "Rematch (same code)";
 export const ONE_MORE_LABEL = "One more round";
 export function winnerLine(name: string): string {
