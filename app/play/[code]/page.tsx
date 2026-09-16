@@ -474,7 +474,17 @@ function PlayInner({ code }: { code: string }) {
                   ? "Only your answer is in — you can't vote for yourself. Grab another player, or get the host to skip to scores."
                   : "Everyone else's answers will appear here."}
               </p>
-              {mySub && <p style={{ opacity: 0.7 }}>Your answer: “{mySub.text_content ?? "(drawing)"}”</p>}
+              {mySub && (
+                <p style={{ opacity: 0.7 }}>
+                  Your answer:{" "}
+                  {mySub.image_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={mySub.image_url} alt="Your drawing" style={{ width: "100%", maxWidth: 140, borderRadius: 10, border: "2px solid #111", background: "#fff", marginTop: 6, display: "block" }} />
+                  ) : (
+                    `“${mySub.text_content}”`
+                  )}
+                </p>
+              )}
             </div>
           ) : (
             votable.map((s) => (
@@ -526,7 +536,15 @@ function PlayInner({ code }: { code: string }) {
                   .map((s) => (
                     <li key={s.player_session} style={{ ...scoreLi, fontSize: 17 }}>
                       <span style={{ color: "#7c3aed" }}>{nameOf(room, s.player_session)}</span>
-                      {" — “"}{s.image_url ? "(drawing)" : s.text_content}{"”"}
+                      {s.image_url ? (
+                        <span>
+                          {" — "}
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={s.image_url} alt={`Drawing by ${nameOf(room, s.player_session)}`} style={{ width: "100%", maxWidth: 160, borderRadius: 10, border: "2px solid #111", background: "#fff", display: "block", marginTop: 6 }} />
+                        </span>
+                      ) : (
+                        <span>{" — “"}{s.text_content}{"”"}</span>
+                      )}
                       <span style={{ opacity: 0.7 }}> · {s.votes ?? 0} {s.votes === 1 ? "vote" : "votes"}</span>
                     </li>
                   ))}

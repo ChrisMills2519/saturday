@@ -55,7 +55,6 @@ import {
   HOST_HINT,
   REVEAL_HINT,
   MVP_TITLE,
-  drawingLabel,
 } from "@/lib/hostCopy";
 import {
   TimerIcon,
@@ -63,12 +62,22 @@ import {
   BallotIcon,
   TrophyIcon,
   CheckIcon,
-  DrawIcon,
   LockIcon,
   MedalIcon,
 } from "@/components/icons";
 import { PlayerParade } from "@/components/PlayerParade";
 import { hostHeaders, setHostToken, getHostToken } from "@/lib/hostToken";
+import {
+  unlockVoice,
+  isVoiceEnabled,
+  setVoiceEnabled,
+  getSarcasmMode,
+  setSarcasmMode,
+  cancelVoice,
+  speak,
+  type SarcasmMode,
+} from "@/lib/voice";
+import { phaseLine, saySlot, sayAnswer, scoreExtras, shutUp, estimateMs } from "@/lib/hostLines";
 import { isFinalRound, MAX_PLAYERS } from "@/lib/gameEngine";
 import type { Phase } from "@/app/preview/HumanoidWalker";
 
@@ -201,6 +210,16 @@ export default function HostPage({ params }: { params: { code: string } }) {
   const left = useCountdown(room?.ends_at ?? null);
   const [muted, setMutedState] = useState(false);
   const [soundOn, setSoundOn] = useState(false);
+  // Host voice: separate kill-switch from SFX mute, sarcasm bank persisted.
+  const [voiceOn, setVoiceOnState] = useState(true);
+  const [sarcasm, setSarcasmState] = useState<SarcasmMode>("family");
+  const usedLines = useRef<Set<string>>(new Set());
+  const stallFired = useRef("");
+  const extrasTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => {
+    setVoiceOnState(isVoiceEnabled());
+    setSarcasmState(getSarcasmMode());
+  }, []);
   const [rounds, setRounds] = useState(3);
   const [gameType, setGameType] = useState<"text" | "draw">("text");
   const [customPrompt, setCustomPrompt] = useState("");
@@ -232,6 +251,8 @@ export default function HostPage({ params }: { params: { code: string } }) {
 
   async function post(path: string, body?: unknown) {
     if (ensureAudio()) setSoundOn(true);
+    unlockVoice();
+    if (isVoiceEnabled()) setVoiceOnState(true);
     const res = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...hostHeaders(code) },
@@ -262,7 +283,20 @@ export default function HostPage({ params }: { params: { code: string } }) {
     const next = !muted;
     setMuted(next);
     setMutedState(next);
+    if (next) cancelVoice();
     if (!next && ensureAudio()) setSoundOn(true);
+  }
+
+  function toggleVoice() {
+    const next = !voiceOn;
+    setVoiceEnabled(next);
+    setVoiceOnState(next);
+    unlockVoice();
+  }
+
+  function switchSarcasm(mode: SarcasmMode) {
+    setSarcasmMode(mode);
+    setSarcasmState(mode);
   }
 
   // Fire confetti + fanfare once per SCORE entry.
@@ -367,6 +401,74 @@ export default function HostPage({ params }: { params: { code: string } }) {
     return startVoteBed();
   }, [room?.phase, soundOn, muted]);
 
+  // --- Host voice ---------------------------------------------------------
+  // Phase-entry opener. New game (LOBBY) resets the anti-repeat set.
+  // SCORE winner is sticky (uninterruptible) with extras queued behind it.
+  useEffect(() => {
+    if (!room || !soundOn || muted || !voiceOn) return;
+    extrasTimers.current.forEach(clearTimeout);
+    extrasTimers.current = [];
+    if (room.phase === "LOBBY") {
+      usedLines.current = new Set();
+      stallFired.current = "";
+    }
+    const line = phaseLine(room.phase, sarcasm, usedLines.current);
+    if (!line) return;
+    if (room.phase === "SCORE") {
+      shutUp();
+      // Winner mic-drop: uninterruptible, extras chained behind its length.
+      speak(line.text, { type: line.type, priority: line.priority, sticky: true });
+      const leadMs = estimateMs(line.text);
+      scoreExtras(room.submissions, sarcasm, usedLines.current, leadMs);
+      if (room.submissions.length >= 2) {
+        const id = setTimeout(() => saySlot("score_award", sarcasm, usedLines.current), leadMs + 8000);
+        extrasTimers.current.push(id);
+      }
+      return;
+    }
+    shutUp();
+    speak(line.text, { type: line.type, priority: line.priority });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room?.phase, room?.current_round, soundOn, muted, voiceOn, sarcasm]);
+
+  // REVEAL walk: speak each card as it slams (auto or tap/Space).
+  useEffect(() => {
+    if (!room || room.phase !== "REVEAL") return;
+    if (!soundOn || muted || !voiceOn) return;
+    if (revealed < 1) return;
+    const sub = room.submissions[revealed - 1];
+    if (!sub) return;
+    // Small pre-beat so the card lands visually first.
+    const id = setTimeout(
+      () => sayAnswer(sub, sarcasm, usedLines.current, revealed - 1, room.submissions.length),
+      250
+    );
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealed, room?.phase, soundOn, muted, voiceOn, sarcasm]);
+
+  // INPUT dead air: voice the rotating one-liner (priority 1 — drops if busy).
+  useEffect(() => {
+    if (room?.phase !== "INPUT") return;
+    if (!soundOn || muted || !voiceOn) return;
+    if (oneLiner === 0) return; // opener already covered round start
+    saySlot("input_nudge", sarcasm, usedLines.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [oneLiner]);
+
+  // INPUT stall jab: once per round when the clock bleeds with stragglers.
+  useEffect(() => {
+    if (!room || room.phase !== "INPUT") return;
+    if (!soundOn || muted || !voiceOn) return;
+    if (left === null || left > 15 || left <= 0) return;
+    if (submitted >= total) return;
+    const key = `${code}:${room.current_round}`;
+    if (stallFired.current === key) return;
+    stallFired.current = key;
+    saySlot("input_stall", sarcasm, usedLines.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [left, room?.phase]);
+
   // Keep the LOBBY rounds stepper in sync with the server (default 3).
   useEffect(() => {
     if (room?.phase === "LOBBY" && typeof room.total_rounds === "number") {
@@ -401,7 +503,10 @@ export default function HostPage({ params }: { params: { code: string } }) {
     setActionErr(null);
     const { ok, data } = await post(`/api/rooms/${code}/extend`, { seconds: 30 });
     if (!ok) setActionErr(`Couldn't add time: ${data?.error ?? "unknown"}`);
-    else setTimerTotal((t) => t + 30);
+    else {
+      setTimerTotal((t) => t + 30);
+      if (voiceOn && !muted) saySlot("extend_snark", sarcasm, usedLines.current);
+    }
   }
 
   async function kick(target: string, label: string) {
@@ -491,6 +596,14 @@ export default function HostPage({ params }: { params: { code: string } }) {
         <button onClick={toggleMute} style={soundBtn} aria-label={muted ? "Unmute sound" : "Mute sound"}>
           {!soundOn ? "Tap for sound" : muted ? "Sound off" : "Sound on"}
         </button>
+        <button
+          onClick={toggleVoice}
+          style={{ ...soundBtn, bottom: 64 }}
+          aria-label={voiceOn ? "Mute host voice" : "Unmute host voice"}
+          aria-pressed={voiceOn}
+        >
+          {voiceOn ? "Host voice on" : "Host voice off"}
+        </button>
         {!clean && (
           <header style={topbar}>
             <div style={{ display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
@@ -559,6 +672,23 @@ export default function HostPage({ params }: { params: { code: string } }) {
                   </button>
                 </div>
                 <p style={{ fontSize: 18, opacity: 0.7, fontStyle: "italic" }}>{HOST_HINT}</p>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 20, fontWeight: 800 }}>Host mouth:</span>
+                  <button
+                    onClick={() => switchSarcasm("family")}
+                    style={{ ...stepBtn, width: "auto", padding: "0 16px", background: sarcasm === "family" ? THEME.teal : "#fff" }}
+                    aria-pressed={sarcasm === "family"}
+                  >
+                    Family
+                  </button>
+                  <button
+                    onClick={() => switchSarcasm("savage")}
+                    style={{ ...stepBtn, width: "auto", padding: "0 16px", background: sarcasm === "savage" ? THEME.pink : "#fff" }}
+                    aria-pressed={sarcasm === "savage"}
+                  >
+                    Savage
+                  </button>
+                </div>
                 <div style={{ marginTop: 8, maxWidth: 640 }}>
                   <label htmlFor="custom-prompt" style={{ fontSize: 18, fontWeight: 800, display: "block", marginBottom: 4 }}>
                     Custom prompt (optional)
@@ -715,9 +845,8 @@ export default function HostPage({ params }: { params: { code: string } }) {
                   {room.submissions.map((s, i) => (
                     <motion.div key={s.player_session} variants={cardV} style={{ ...answerCard, ...card, transform: `rotate(${i % 2 ? 1 : -1}deg)` }}>
                       {s.image_url ? (
-                        <p style={{ fontSize: 24, display: "flex", alignItems: "center", gap: 10 }}>
-                          <DrawIcon size={26} /> (drawing)
-                        </p>
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={s.image_url} alt="Drawing to vote on" style={{ width: "100%", borderRadius: 10, border: "2px solid #111", background: "#fff", display: "block" }} />
                       ) : (
                         <p style={{ fontSize: 26, fontWeight: 800 }}>{s.text_content}</p>
                       )}
@@ -758,9 +887,8 @@ export default function HostPage({ params }: { params: { code: string } }) {
                     </div>
                     <div style={{ fontSize: 26, fontWeight: 800, marginTop: 4 }}>
                       {roundMvp.image_url ? (
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-                          <DrawIcon size={26} /> {drawingLabel()}
-                        </span>
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={roundMvp.image_url} alt={`Winning drawing by ${nameOf(room, roundMvp.player_session)}`} style={{ width: "100%", maxWidth: 280, borderRadius: 10, border: "2px solid #111", background: "#fff", display: "block", marginTop: 4 }} />
                       ) : (
                         roundMvp.text_content
                       )}
@@ -784,7 +912,14 @@ export default function HostPage({ params }: { params: { code: string } }) {
                             <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: 1, color: "#7c3aed", textTransform: "uppercase" }}>
                               {nameOf(room, s.player_session)}
                             </div>
-                            <div style={answerText}>{s.image_url ? "(drawing)" : s.text_content}</div>
+                            <div style={answerText}>
+                              {s.image_url ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={s.image_url} alt={`Drawing by ${nameOf(room, s.player_session)}`} style={{ width: "100%", maxWidth: 220, borderRadius: 10, border: "2px solid #111", background: "#fff", display: "block" }} />
+                              ) : (
+                                s.text_content
+                              )}
+                            </div>
                             <div style={{ fontSize: 16, fontWeight: 800, marginTop: 4 }}>
                               {s.votes ?? 0} {s.votes === 1 ? "vote" : "votes"}
                               {pickedBy.length > 0 && (

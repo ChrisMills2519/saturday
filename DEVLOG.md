@@ -272,3 +272,20 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 **Not done:** audience mode, prompt-pack picker, per-phase music beds, share-card export, Fibbage/trivia mechanics, two-prompt choice, TTS announcer, onboarding tutorial (see 2026-09-15 audit + 2026-09-16 reviews).
 
 **What's next:** push → Vercel redeploy → phone-on-mobile-data test → human browser pass (touch DrawPad, reveal pacing, SCORE recap readability).
+
+## 2026-09-16 — Drawings on results screen (SCORE + host VOTE fix)
+
+**What changed:** draw-mode `image_url`s were in the SCORE snapshot but both results renderers printed the literal text `(drawing)` — host TV `app/host/[code]/page.tsx` authorship grid + MVP card, phone `app/play/[code]/page.tsx` WHO WROTE WHAT. Host VOTE grid had the same placeholder. All four now render `<img src={s.image_url}>` thumbnails (TV SCORE ≤220px, MVP ≤280px, VOTE full-width like REVEAL; phone SCORE ≤160px, VOTE-empty echo ≤140px). Removed now-unused `DrawIcon` / `drawingLabel` imports on the host page.
+
+**Why:** bug report with screenshots (room ARB6): round winner + per-player cards + phone recap all showed "(drawing)" text, so draw rounds had no payoff. Data flow was already correct (`roomService.ts` only redacts images in INPUT; phone VOTE already rendered `<img>`).
+
+**Verified:** `npm run typecheck` clean, `npm run build` green (host 8.24 / play 6.71 kB). Mental smoke: draw submit → REVEAL shows image → VOTE shows image on TV + phones → SCORE shows MVP + per-player thumbnails + phone recap.
+
+**What's next:** push → Vercel redeploy → real draw round on TV + phones to confirm thumbnails at living-room distance.
+
+## 2026-09-16 — Sarcastic host voice (Tier 1 browser TTS)
+
+**What changed:** TV speaks with zero recordings. New `lib/voice.ts` (speechSynthesis engine: smug-trivia-nerd presets, clause chunker rendering `...`/`—`/`[beat]` as pauses, priority queue with sticky winner, voice/sarcasm prefs in localStorage), `lib/hostPersonality.ts` (family + savage line banks over 13 slots, anti-repeat picker, roast-answers-never-people target policy), `lib/hostLines.ts` (phase queue, answer reader with URL-strip + 120-char cap, score extras chained behind winner length via `estimateMs`). Host page: phase-entry openers, REVEAL card-by-card read-aloud (250ms pre-beat), INPUT dead-air one-liners on the existing 8s timer, stall jab once/round at ≤15s, extend-time snark, SCORE sticky winner + shutout/unanimous/awards chain. UI: "Host voice on/off" button (separate from Sound mute) + Family/Savage segmented toggle in lobby (default family).
+**Why:** Jackbox's host voice carries the show; browser TTS is free, offline-safe, zero-latency, no API keys — and the `lib/voice.ts` engine interface leaves a Kokoro.js neural-voice slot open (same beat markers map to silence tokens later).
+**Verified:** `npm run typecheck` clean, `npm run build` green (host 12.6 kB). Mental smoke: create→start (opener) → INPUT one-liners rotate w/o repeats → REVEAL reads cards in slam order → SCORE winner uninterrupted, extras follow → mute kills all, voice-off kills voice only, savage never leaks under family default.
+**What's next:** human living-room pass (pick OS voice, tune rate/pitch, confirm cadence); Kokoro.js phase 2 (lazy `kokoro-js` import, q8 wasm, warmup in LOBBY).
