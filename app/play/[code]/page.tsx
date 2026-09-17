@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { getSessionId } from "@/lib/gameEngine";
 import { isHouseSession, letterForSession } from "@/lib/quiz";
-import { THEME, DISPLAY_FONT, IMAGES, stageBg, answerCard, phoneBtn } from "@/lib/theme";
+import { THEME, DISPLAY_FONT, IMAGES, stageBg, answerCard, phoneBtn, focusRing } from "@/lib/theme";
 import { Mascot } from "@/components/Mascot";
 import { clearDraft, clearAllVoted, loadDraft, loadJoin, loadVoted, saveDraft, saveJoin, saveVoted } from "@/lib/persistence";
 
@@ -32,30 +32,20 @@ import {
   isFinalRound,
   SUBMIT_LATE,
   ALREADY_VOTED,
+  PHASE_STATUS,
   personalLine,
   youWinLine,
 } from "@/lib/hostCopy";
+import { nameOf, ordinal } from "@/lib/roomUtils";
 
 const MAX_LEN = 140;
 
-const PHASE_STATUS: Record<string, string> = {
-  LOBBY: "Who's in?",
-  INPUT: "What have you got?",
-  REVEAL: "Whose is whose?",
-  VOTE: "Which one?",
-  SCORE: "Who won?",
-};
-
 export default function PlayPage({ params }: { params: { code: string } }) {
   return (
-    <Suspense fallback={<main style={wrap}><p>Loading…</p></main>}>
+    <Suspense fallback={<main style={{ ...stageBg, padding: 20, maxWidth: 520, margin: "0 auto", minHeight: "100dvh", color: "#fff" }}><p>Loading…</p></main>}>
       <PlayInner code={params.code} />
     </Suspense>
   );
-}
-
-function nameOf(room: RoomSnapshot, sessionId: string): string {
-  return room.players.find((p) => p.session_id === sessionId)?.name ?? "???";
 }
 
 function PlayInner({ code }: { code: string }) {
@@ -84,6 +74,8 @@ function PlayInner({ code }: { code: string }) {
   const autoJoined = useRef(false);
   const lastLeft = useRef<number | null>(null);
   const lastRound = useRef(-1);
+  const answerRef = useRef<HTMLTextAreaElement | null>(null);
+  const [answerFocused, setAnswerFocused] = useState(false);
 
   useEffect(() => {
     fetch(`/api/rooms/${code}`, { cache: "no-store" })
@@ -133,6 +125,13 @@ function PlayInner({ code }: { code: string }) {
     setText((cur) => (cur ? cur : loadDraft(code, round)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [joined, code, round, room?.phase]);
+
+  // Auto-focus the answer field when INPUT starts so players can type immediately.
+  useEffect(() => {
+    if (!joined || room?.phase !== "INPUT") return;
+    const t = setTimeout(() => answerRef.current?.focus({ preventScroll: true }), 120);
+    return () => clearTimeout(t);
+  }, [joined, room?.phase, round]);
 
   useEffect(() => {
     setVoted(loadVoted(code, round));
@@ -315,7 +314,7 @@ function PlayInner({ code }: { code: string }) {
         <Mascot src={IMAGES.lobby} alt="Host" size={140} />
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" style={input} aria-label="Your name" />
         <motion.button whileTap={{ scale: 0.97 }} onClick={join} disabled={joinBusy} style={btn}>{joinBusy ? "Joining…" : "Join"}</motion.button>
-        {joinErr && <p role="alert" style={{ color: "#ff8a8a" }}>{joinErr}</p>}
+        {joinErr && <p role="alert" style={{ color: THEME.errorLight }}>{joinErr}</p>}
       </main>
     );
   }
@@ -357,7 +356,7 @@ function PlayInner({ code }: { code: string }) {
 
   return (
     <main style={{ ...stageBg, ...wrap }}>
-      <p style={codePill} aria-live="polite" role="status">{code} · {PHASE_STATUS[room.phase] ?? room.phase}</p>
+      <p style={codePill} aria-live="polite" role="status">{code} · R{Math.max(round, 1)} · {PHASE_STATUS[room.phase] ?? room.phase}</p>
       <h1 style={promptCard}>{room.phase === "SCORE" ? (final ? FINAL_TITLE : "Who won?") : (room.prompt ?? `Room ${code} — who's joining?`)}</h1>
       {left !== null && (
         <motion.p
@@ -366,12 +365,11 @@ function PlayInner({ code }: { code: string }) {
           aria-live="off"
           animate={urgent && !reduce ? { x: [0, -6, 6, -4, 4, 0], scale: [1, 1.08, 1] } : { x: 0, scale: 1 }}
           transition={{ duration: 0.5, repeat: urgent && !reduce ? Infinity : 0, repeatDelay: 1 }}
-          style={{ fontSize: 22, fontWeight: 800, color: urgent ? "#ff8a8a" : undefined, display: "flex", alignItems: "center", gap: 8 }}
+          style={{ fontSize: 22, fontWeight: 800, color: urgent ? THEME.errorLight : undefined, display: "flex", alignItems: "center", gap: 8 }}
         >
           <TimerIcon size={24} /> {left}s {urgent ? "— whose answer?" : ""}
         </motion.p>
       )}
-      <p style={{ opacity: 0.75, fontWeight: 700 }} aria-live="polite" role="status">{PHASE_STATUS[room.phase] ?? room.phase}</p>
 
       <AnimatePresence mode="wait">
         <motion.div
@@ -403,6 +401,7 @@ function PlayInner({ code }: { code: string }) {
           ) : (
             <>
               <motion.textarea
+                ref={answerRef}
                 value={text}
                 onChange={(e) => onText(e.target.value)}
                 onKeyDown={(e) => {
@@ -412,17 +411,20 @@ function PlayInner({ code }: { code: string }) {
                   }
                 }}
                 placeholder={room.prompt_hint ?? "What's your answer?"}
+                aria-label="Your answer"
                 rows={4}
                 maxLength={MAX_LEN}
                 autoCorrect="off"
                 autoCapitalize="off"
                 spellCheck={false}
                 enterKeyHint="send"
+                onFocus={() => setAnswerFocused(true)}
+                onBlur={() => setAnswerFocused(false)}
                 whileFocus={reduce ? undefined : { scale: 1.02 }}
-                style={input}
+                style={answerFocused ? { ...input, ...focusRing } : input}
               />
-              <div style={{ fontSize: 13, opacity: 0.6, marginBottom: 8 }}>
-                {text.length}/{MAX_LEN} · {room.prompt_hint ?? "What's the funniest version?"}
+              <div style={{ fontSize: 13, opacity: 0.6, marginBottom: 8, color: text.length >= MAX_LEN * 0.95 ? THEME.error : text.length >= MAX_LEN * 0.85 ? THEME.gold : undefined }}>
+                {text.length}/{MAX_LEN} · {text.length >= MAX_LEN * 0.95 ? "Almost at the limit!" : (room.prompt_hint ?? "What's the funniest version?")}
               </div>
               <motion.button
                 onClick={submit}
@@ -439,7 +441,7 @@ function PlayInner({ code }: { code: string }) {
               )}
             </>
           )}
-          {submitErr && <p style={{ color: "#ff8a8a" }}>{submitErr}</p>}
+          {submitErr && <p style={{ color: THEME.errorLight }}>{submitErr}</p>}
         </>
       )}
 
@@ -447,8 +449,8 @@ function PlayInner({ code }: { code: string }) {
         <div style={doneCard}>
           <AnimatePresence>
             <motion.svg width={72} height={72} viewBox="0 0 72 72" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} style={{ marginTop: 4 }}>
-              <motion.circle cx={36} cy={36} r={30} fill="none" stroke="#34d399" strokeWidth={5} initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.5 }} />
-              <motion.path d="M24 37l8 8 16-16" fill="none" stroke="#34d399" strokeWidth={6} strokeLinecap="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.4, delay: 0.3 }} />
+              <motion.circle cx={36} cy={36} r={30} fill="none" stroke={THEME.success} strokeWidth={5} initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.5 }} />
+              <motion.path d="M24 37l8 8 16-16" fill="none" stroke={THEME.success} strokeWidth={6} strokeLinecap="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.4, delay: 0.3 }} />
             </motion.svg>
           </AnimatePresence>
           <p style={{ fontSize: 20, fontWeight: 700 }}>{SUBMITTED_TITLE}</p>
@@ -526,7 +528,7 @@ function PlayInner({ code }: { code: string }) {
             votable.map((s) => (
               <motion.button key={s.player_session} onClick={() => vote(s.player_session)} disabled={voteBusy} whileTap={{ scale: 0.96 }} style={voteBtn}>
                 {letterForSession(s.player_session) && (
-                  <span style={{ display: "inline-block", fontFamily: DISPLAY_FONT, fontSize: 22, background: "#111", color: "#ffd23f", borderRadius: 8, padding: "0 12px", marginRight: 8 }}>
+                  <span style={{ display: "inline-block", fontFamily: DISPLAY_FONT, fontSize: 22, background: "#111", color: THEME.gold, borderRadius: 8, padding: "0 12px", marginRight: 8 }}>
                     {letterForSession(s.player_session)}
                   </span>
                 )}
@@ -539,7 +541,7 @@ function PlayInner({ code }: { code: string }) {
               </motion.button>
             ))
           )}
-          {voteErr && <p style={{ color: "#ff8a8a" }}>{voteErr}</p>}
+          {voteErr && <p style={{ color: THEME.errorLight }}>{voteErr}</p>}
         </>
       )}
 
@@ -572,7 +574,7 @@ function PlayInner({ code }: { code: string }) {
           })()}
           <ul style={{ listStyle: "none", padding: 0 }}>
             {sortedScores.map((s, i) => (
-              <li key={s.sessionId} style={s.sessionId === sid ? { ...scoreLi, border: "2px solid #7c3aed" } : scoreLi}>
+              <li key={s.sessionId} style={s.sessionId === sid ? { ...scoreLi, border: `2px solid ${THEME.purple}` } : scoreLi}>
                 {i + 1}. {s.name}: {s.pts}
               </li>
             ))}
@@ -586,7 +588,7 @@ function PlayInner({ code }: { code: string }) {
                   .sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0))
                   .map((s) => (
                     <li key={s.player_session} style={{ ...scoreLi, fontSize: 17 }}>
-                      <span style={{ color: "#7c3aed" }}>
+                      <span style={{ color: THEME.purple }}>
                         {isHouseSession(s.player_session)
                           ? (s.player_session === room.quiz?.correct_session
                               ? `${letterForSession(s.player_session) ? `${letterForSession(s.player_session)} · ` : ""}correct answer`
@@ -615,12 +617,6 @@ function PlayInner({ code }: { code: string }) {
       </AnimatePresence>
     </main>
   );
-}
-
-function ordinal(n: number): string {
-  const s = ["th", "st", "nd", "rd"];
-  const v = n % 100;
-  return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0]}`;
 }
 
 const wrap: React.CSSProperties = { padding: 20, maxWidth: 520, margin: "0 auto", minHeight: "100dvh", color: "#fff" };

@@ -456,3 +456,18 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 **Verified:** `npm run typecheck` clean, `npm run build` green (new `/api/rooms/[code]/tick` route; host 12.9 kB, play 7.15 kB, voicelab 7.71 kB, no onnx chunks). Mental smoke: create→join→submit→vote→SCORE unchanged; expiry path is conditional-phase + broadcast, same snapshot channel.
 
 **Still deferred (P2):** Tier-1 presets hardcoded, voice cross-tab cache bust, dual voice-list sync guard, lobby-bed prune (6 beds, 1 wired), README/file-map drift, `tsconfig target` ES5 default.
+
+## 2026-09-17 — UI overhaul: a11y + UX + extraction
+
+**What changed:**
+- Theme: added error/success/blue/gold/muted tokens + focusRing + disabledBtn to lib/theme.ts.
+- Home (app/page.tsx): aria-labels + <label> on inputs, focus-ring on focus, disabled styling, error uses THEME.errorSoft.
+- Phone (app/play/[code]/page.tsx): textarea aria-label + autofocus on INPUT, char-count warning colors (gold 85%, red 95%), Suspense fallback uses stageBg, removed duplicate phase status, code pill shows R{round}, raw hexes -> THEME tokens, PHASE_STATUS/nameOf/ordinal now shared imports.
+- Shared: PHASE_STATUS moved to lib/hostCopy.ts, new lib/roomUtils.ts (nameOf + ordinal), new lib/motionVariants.ts, lib/hostStyles.ts, components/Confetti.tsx, BtnLabel.tsx, TimerBar.tsx.
+- Host (app/host/[code]/page.tsx): 1245 -> ~1135 lines; inline components/styles/variants removed, imports shared; REVEAL got visible "Next card" button; VOTE got "Skip ahead" button + disabled states; error/gold hexes -> THEME tokens.
+
+**Why:** keyboard users had no focus indicator; home inputs had no labels; REVEAL required hidden tap/Space knowledge; VOTE had no visible skip; phone hid round number; host monolith blocked maintenance.
+
+**Verified:** npm run typecheck clean, npm run build green (host 13 kB, play 7.18 kB). Mental smoke: create->join->submit->vote unchanged; REVEAL next advances card count; VOTE skip calls advance SCORE; phone round pill + autofocus + char warning render.
+
+**What's next:** hooks extraction (useVoiceEffects/useMusicBeds/useHostActions) deferred — voice orchestration too fragile to move blind; needs playthrough test first.

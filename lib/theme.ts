@@ -10,6 +10,15 @@ export const THEME = {
   teal: "#22ffcc",
   ink: "#111111",
   white: "#ffffff",
+  error: "#ff5d5d",
+  errorLight: "#ff8a8a",
+  errorMuted: "#ffb4b4",
+  errorSoft: "#f87171",
+  success: "#34d399",
+  blue: "#60a5fa",
+  gold: "#ffd23f",
+  muted: "rgba(255,255,255,0.6)",
+  mutedLight: "rgba(255,255,255,0.75)",
 } as const;
 
 export const DISPLAY_FONT =
@@ -72,4 +81,16 @@ export const phoneBtn: React.CSSProperties = {
   borderRadius: 14,
   boxShadow: "4px 4px 0 #111",
   cursor: "pointer",
+};
+
+// Visible keyboard focus indicator (WCAG 2.4.7). Inline styles can't use
+// :focus-visible, so merge this via onFocus/onBlur state where needed.
+export const focusRing: React.CSSProperties = {
+  outline: `3px solid ${THEME.teal}`,
+  outlineOffset: 2,
+};
+
+export const disabledBtn: React.CSSProperties = {
+  opacity: 0.55,
+  cursor: "not-allowed",
 };

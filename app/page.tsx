@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { motion, type Variants, useReducedMotion } from "motion/react";
 import { getSessionId } from "@/lib/gameEngine";
 import { setHostToken } from "@/lib/hostToken";
-import { THEME, DISPLAY_FONT, IMAGES } from "@/lib/theme";
+import { THEME, DISPLAY_FONT, IMAGES, focusRing, disabledBtn } from "@/lib/theme";
 import { Mascot } from "@/components/Mascot";
 
 const container: Variants = {
@@ -27,6 +27,7 @@ export default function Home() {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [focused, setFocused] = useState<string | null>(null);
   const reduce = useReducedMotion();
 
   async function createRoom() {
@@ -93,10 +94,10 @@ export default function Home() {
           <motion.button
             onClick={createRoom}
             disabled={busy}
-            whileHover={{ scale: 1.04 }}
-            whileTap={{ scale: 0.97 }}
+            whileHover={busy ? undefined : { scale: 1.04 }}
+            whileTap={busy ? undefined : { scale: 0.97 }}
             transition={{ duration: 0.15 }}
-            style={primaryBtn}
+            style={busy ? { ...primaryBtn, ...disabledBtn } : primaryBtn}
           >
             {busy ? "Creating…" : "Create Game"}
           </motion.button>
@@ -104,14 +105,21 @@ export default function Home() {
 
         <motion.section variants={item} style={joinSection}>
           <h2 style={joinHeading}>Join Game</h2>
+          <label htmlFor="home-name" style={visuallyHidden}>Your name</label>
           <input
+            id="home-name"
             placeholder="Your name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoComplete="nickname"
-            style={input}
+            aria-label="Your name"
+            onFocus={() => setFocused("name")}
+            onBlur={() => setFocused(null)}
+            style={focused === "name" ? { ...input, ...focusRing } : input}
           />
+          <label htmlFor="home-code" style={visuallyHidden}>Room code</label>
           <motion.input
+            id="home-code"
             placeholder="Code (e.g. AB12)"
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
@@ -121,21 +129,24 @@ export default function Home() {
             autoCorrect="off"
             spellCheck={false}
             inputMode="text"
+            aria-label="Room code"
+            onFocus={() => setFocused("code")}
+            onBlur={() => setFocused(null)}
             whileFocus={reduce ? undefined : { scale: [1, 1.02, 1] }}
             transition={{ duration: 0.18 }}
-            style={{ ...input, textTransform: "uppercase" }}
+            style={focused === "code" ? { ...input, textTransform: "uppercase", ...focusRing } : { ...input, textTransform: "uppercase" }}
           />
           <motion.button
             onClick={joinRoom}
             disabled={busy || !code.trim() || !name.trim()}
-            whileHover={{ scale: 1.04 }}
-            whileTap={{ scale: 0.97 }}
+            whileHover={busy || !code.trim() || !name.trim() ? undefined : { scale: 1.04 }}
+            whileTap={busy || !code.trim() || !name.trim() ? undefined : { scale: 0.97 }}
             transition={{ duration: 0.15 }}
-            style={secondaryBtn}
+            style={busy || !code.trim() || !name.trim() ? { ...secondaryBtn, ...disabledBtn } : secondaryBtn}
           >
             {busy ? "Joining…" : "Join Game"}
           </motion.button>
-          {error && <p role="alert" style={{ color: "#f87171", fontSize: 16, fontWeight: 700, marginTop: 8, textAlign: "center" }}>{error}</p>}
+          {error && <p role="alert" style={{ color: THEME.errorSoft, fontSize: 16, fontWeight: 700, marginTop: 8, textAlign: "center" }}>{error}</p>}
         </motion.section>
       </div>
     </motion.main>
@@ -230,6 +241,18 @@ const input: React.CSSProperties = {
   color: "#111",
   outline: "none",
   minHeight: 52,
+};
+
+const visuallyHidden: React.CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
 };
 
 const secondaryBtn: React.CSSProperties = {

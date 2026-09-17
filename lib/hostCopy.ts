@@ -113,3 +113,11 @@ export const VOTED_TITLE = "Locked in — which one did you pick?";
 export const VOTE_EMPTY_TITLE = "Whose answers are missing?";
 export const SUBMIT_LATE = "Too late — round moved on!";
 export const ALREADY_VOTED = "Vote already locked in";
+
+export const PHASE_STATUS: Record<string, string> = {
+  LOBBY: "Who's in?",
+  INPUT: "What have you got?",
+  REVEAL: "Whose is whose?",
+  VOTE: "Which one?",
+  SCORE: "Who won?",
+};

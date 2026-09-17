@@ -1,9 +1,31 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import { useRoom, useCountdown, type RoomSnapshot } from "@/lib/realtime";
-import { THEME, DISPLAY_FONT, IMAGES, outlineTitle, stageBg, answerCard, tvBtn } from "@/lib/theme";
+import { THEME, DISPLAY_FONT, IMAGES, outlineTitle, stageBg, answerCard, tvBtn, disabledBtn } from "@/lib/theme";
 import { Mascot, StageBg } from "@/components/Mascot";
+import { Confetti } from "@/components/Confetti";
+import { BtnLabel } from "@/components/BtnLabel";
+import { TimerBar } from "@/components/TimerBar";
+import { grid, cardV, phaseV } from "@/lib/motionVariants";
+import {
+  CHIP_COLORS,
+  wrap,
+  topbar,
+  sub,
+  promptHero,
+  answerText,
+  paceToggle,
+  chip,
+  card,
+  gridStyle,
+  bigBtn,
+  stepBtn,
+  podiumBar,
+  soundBtn,
+  kickBtn,
+} from "@/lib/hostStyles";
+import { nameOf } from "@/lib/roomUtils";
 import {
   ensureAudio,
   isMuted,
@@ -55,6 +77,7 @@ import {
   HOST_HINT,
   REVEAL_HINT,
   MVP_TITLE,
+  PHASE_STATUS,
 } from "@/lib/hostCopy";
 import {
   TimerIcon,
@@ -82,109 +105,6 @@ import { phaseLine, saySlot, saySlotFree, sayAnswer, sayInputPrompt, sayQuizQues
 import { isFinalRound, MAX_PLAYERS, type GameType } from "@/lib/gameEngine";
 import { isHouseSession, letterForSession } from "@/lib/quiz";
 import type { Phase } from "@/app/preview/HumanoidWalker";
-
-const PHASE_STATUS: Record<Phase, string> = {
-  LOBBY: "Who's in?",
-  INPUT: "What have you got?",
-  REVEAL: "Whose is whose?",
-  VOTE: "Which one?",
-  SCORE: "Who won?",
-};
-
-const grid = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.08, delayChildren: 0.05 } },
-};
-const cardV = {
-  hidden: { opacity: 0, y: 40, rotate: -2, scale: 0.92 },
-  show: {
-    opacity: 1,
-    y: 0,
-    rotate: 0,
-    scale: 1,
-    transition: { type: "spring" as const, stiffness: 260, damping: 20 },
-  },
-};
-const phaseV = {
-  hidden: { opacity: 0, y: 32, scale: 0.98 },
-  show: {
-    opacity: 1,
-    y: 0,
-    scale: 1,
-    transition: { type: "spring" as const, stiffness: 220, damping: 24 },
-  },
-  exit: { opacity: 0, y: -24, scale: 0.98, transition: { duration: 0.18 } },
-};
-
-function Confetti({ burst }: { burst: number }) {
-  const pieces = useMemo(
-    () =>
-      Array.from({ length: 90 }, (_, i) => ({
-        id: i + burst * 1000,
-        x: (i * 137) % 100,
-        color: ["#f472b6", "#a78bfa", "#34d399", "#fbbf24", "#60a5fa"][i % 5],
-        delay: (i % 20) * 0.02,
-        size: 6 + ((i * 7) % 8),
-      })),
-    [burst]
-  );
-  if (burst === 0) return null;
-  return (
-    <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 50, overflow: "hidden" }}>
-      {pieces.map((p) => (
-        <motion.div
-          key={p.id}
-          initial={{ x: `${p.x}vw`, y: "-5vh", rotate: 0, opacity: 1 }}
-          animate={{ y: "110vh", rotate: 720, opacity: [1, 1, 0] }}
-          transition={{ duration: 2.4 + (p.id % 5) * 0.3, delay: p.delay, ease: "easeIn" }}
-          style={{ position: "absolute", top: 0, borderRadius: 2, background: p.color, width: p.size, height: p.size * 0.6 }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function nameOf(room: RoomSnapshot, sessionId: string): string {
-  return room.players.find((p) => p.session_id === sessionId)?.name ?? sessionId.slice(0, 4);
-}
-
-function BtnLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 10, justifyContent: "center" }}>
-      {children}
-    </span>
-  );
-}
-
-function TimerBar({ left, total = 60 }: { left: number | null; total?: number }) {
-  if (left === null) return null;
-  const pct = Math.max(0, Math.min(1, left / total));
-  const urgent = left <= 10;
-  return (
-    <div style={{ marginTop: 8, maxWidth: 520 }} role="timer" aria-label={`${left} seconds left`} aria-live="off">
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          fontFamily: DISPLAY_FONT,
-          fontSize: 30,
-          color: urgent ? "#ff5d5d" : "#fff",
-        }}
-      >
-        <TimerIcon size={30} /> {left}s
-      </div>
-      <div style={{ height: 14, borderRadius: 999, border: "3px solid #111", background: "rgba(255,255,255,0.15)", overflow: "hidden" }}>
-        <motion.div
-          // GPU-friendly: scaleX on a full-width child, never layout width.
-          animate={{ scaleX: pct }}
-          transition={{ type: "spring", stiffness: 120, damping: 20 }}
-          style={{ height: "100%", width: "100%", transformOrigin: "left", background: urgent ? "#ff5d5d" : THEME.teal }}
-        />
-      </div>
-    </div>
-  );
-}
 
 export default function HostPage({ params }: { params: { code: string } }) {
   const { code } = params;
@@ -756,7 +676,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
               <button onClick={extendTime} style={kickBtn}>+30s</button>
               <button onClick={() => setShowMod(false)} style={kickBtn}>Hide</button>
             </div>
-            {actionErr && <p role="alert" style={{ color: "#ff8a8a", fontSize: 16, fontWeight: 800 }}>{actionErr}</p>}
+            {actionErr && <p role="alert" style={{ color: THEME.errorLight, fontSize: 16, fontWeight: 800 }}>{actionErr}</p>}
           </div>
         )}
 
@@ -857,7 +777,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
                 <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} style={{ ...tvBtn, ...bigBtn }} onClick={startGame}>
                   Start round
                 </motion.button>
-                {startErr && <p style={{ color: "#ff8a8a", fontSize: 20, fontWeight: 800 }}>{startErr}</p>}
+                {startErr && <p style={{ color: THEME.errorLight, fontSize: 20, fontWeight: 800 }}>{startErr}</p>}
                 {room.players.length > 0 && hasToken && (
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
                     {room.players.map((p) => (
@@ -911,7 +831,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
                     <BtnLabel><TimerIcon size={22} /> {EXTEND_LABEL}</BtnLabel>
                   </motion.button>
                 </div>
-                {actionErr && <p role="alert" style={{ color: "#ff8a8a", fontSize: 20, fontWeight: 800 }}>{actionErr}</p>}
+                {actionErr && <p role="alert" style={{ color: THEME.errorLight, fontSize: 20, fontWeight: 800 }}>{actionErr}</p>}
               </>
             )}
 
@@ -936,6 +856,16 @@ export default function HostPage({ params }: { params: { code: string } }) {
                       {autoSlam ? "Auto-slide: on" : "Auto-slide: off"}
                     </button>
                   )}
+                  {revealed < answerCount && (
+                    <motion.button
+                      whileTap={{ scale: 0.96 }}
+                      onClick={() => setRevealed((n) => Math.min(answerCount, n + 1))}
+                      style={{ ...tvBtn, padding: "8px 20px", fontSize: 18 }}
+                      aria-label="Reveal next card"
+                    >
+                      Next card →
+                    </motion.button>
+                  )}
                 </div>
                 <motion.div style={gridStyle} onClick={() => setRevealed((n) => Math.min(answerCount, n + 1))}>
                   <AnimatePresence>
@@ -958,7 +888,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
                           <p style={answerText}>{s.text_content}</p>
                         )}
                         {letterForSession(s.player_session) && (
-                          <div style={{ display: "inline-block", fontFamily: DISPLAY_FONT, fontSize: 26, background: "#111", color: "#ffd23f", borderRadius: 10, padding: "2px 14px", marginBottom: 6 }}>
+                          <div style={{ display: "inline-block", fontFamily: DISPLAY_FONT, fontSize: 26, background: "#111", color: THEME.gold, borderRadius: 10, padding: "2px 14px", marginBottom: 6 }}>
                             {letterForSession(s.player_session)}
                           </div>
                         )}
@@ -975,7 +905,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
                 {revealed < answerCount && (
                   <p style={{ fontSize: 18, opacity: 0.7 }}>Rolling the answers out — voting opens on its own…</p>
                 )}
-                {actionErr && <p role="alert" style={{ color: "#ff8a8a", fontSize: 20, fontWeight: 800 }}>{actionErr}</p>}
+                {actionErr && <p role="alert" style={{ color: THEME.errorLight, fontSize: 20, fontWeight: 800 }}>{actionErr}</p>}
               </>
             )}
 
@@ -991,7 +921,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
                   {room.submissions.map((s, i) => (
                     <motion.div key={s.player_session} variants={cardV} style={{ ...answerCard, ...card, transform: `rotate(${i % 2 ? 1 : -1}deg)` }}>
                       {letterForSession(s.player_session) && (
-                        <div style={{ display: "inline-block", fontFamily: DISPLAY_FONT, fontSize: 30, background: "#111", color: "#ffd23f", borderRadius: 10, padding: "2px 16px", marginBottom: 8 }}>
+                        <div style={{ display: "inline-block", fontFamily: DISPLAY_FONT, fontSize: 30, background: "#111", color: THEME.gold, borderRadius: 10, padding: "2px 16px", marginBottom: 8 }}>
                           {letterForSession(s.player_session)}
                         </div>
                       )}
@@ -1008,11 +938,14 @@ export default function HostPage({ params }: { params: { code: string } }) {
                   ))}
                 </motion.div>
                 <div style={{ display: "flex", gap: 12, marginTop: 24, flexWrap: "wrap" }}>
-                  <motion.button whileTap={{ scale: 0.96 }} style={tvBtn} onClick={extendTime} aria-label="Add 30 seconds">
+                  <motion.button whileTap={{ scale: 0.96 }} style={advancing ? { ...tvBtn, ...disabledBtn } : tvBtn} onClick={extendTime} disabled={advancing} aria-label="Add 30 seconds">
                     <BtnLabel><TimerIcon size={22} /> {EXTEND_LABEL}</BtnLabel>
                   </motion.button>
+                  <motion.button whileTap={{ scale: 0.96 }} style={advancing ? { ...tvBtn, ...disabledBtn, background: "#fff" } : { ...tvBtn, background: "#fff" }} onClick={() => advance("SCORE")} disabled={advancing} aria-label="Skip to results">
+                    {SKIP_LABEL} →
+                  </motion.button>
                 </div>
-                {actionErr && <p role="alert" style={{ color: "#ff8a8a", fontSize: 20, fontWeight: 800 }}>{actionErr}</p>}
+                {actionErr && <p role="alert" style={{ color: THEME.errorLight, fontSize: 20, fontWeight: 800 }}>{actionErr}</p>}
               </>
             )}
 
@@ -1028,7 +961,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
                     initial={reduce ? { opacity: 0 } : { opacity: 0, y: -18, scale: 0.9 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     transition={{ type: "spring", stiffness: 240, damping: 20 }}
-                    style={{ ...answerCard, padding: "14px 20px", margin: "10px 0", maxWidth: 780, border: "4px solid #ffd23f" }}
+                    style={{ ...answerCard, padding: "14px 20px", margin: "10px 0", maxWidth: 780, border: `4px solid ${THEME.gold}` }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 10, fontFamily: DISPLAY_FONT, fontSize: 18, letterSpacing: 1 }}>
                       <TrophyIcon size={22} /> CORRECT ANSWER{letterForSession(quizCorrect.player_session) ? ` — ${letterForSession(quizCorrect.player_session)}` : ""}
@@ -1191,7 +1124,7 @@ export default function HostPage({ params }: { params: { code: string } }) {
                       Next round →
                     </motion.button>
                   )}
-                  {actionErr && <p role="alert" style={{ color: "#ff8a8a", fontSize: 20, fontWeight: 800 }}>{actionErr}</p>}
+                  {actionErr && <p role="alert" style={{ color: THEME.errorLight, fontSize: 20, fontWeight: 800 }}>{actionErr}</p>}
                 </div>
               </>
             )}
@@ -1201,45 +1134,3 @@ export default function HostPage({ params }: { params: { code: string } }) {
     </StageBg>
   );
 }
-
-const CHIP_COLORS = [THEME.pink, THEME.teal, THEME.yellow, "#60a5fa", "#a78bfa"];
-
-const wrap: React.CSSProperties = { padding: 32, maxWidth: 1400, margin: "0 auto", color: "#fff", minHeight: "100dvh" };
-const topbar: React.CSSProperties = { display: "flex", gap: 32, alignItems: "center", flexWrap: "wrap", background: "rgba(0,0,0,0.35)", border: "3px solid #111", borderRadius: 18, padding: "16px 20px", boxShadow: "6px 6px 0 #111" };
-const sub: React.CSSProperties = { fontSize: 20, opacity: 0.9 };
-const promptHero: React.CSSProperties = {
-  fontFamily: DISPLAY_FONT,
-  fontSize: "clamp(28px, 4vw, 44px)",
-  background: "#fff",
-  color: "#111",
-  border: "3px solid #111",
-  borderRadius: 16,
-  boxShadow: "6px 6px 0 #111",
-  padding: "18px 22px",
-  margin: "12px 0",
-};
-// Revealed answers are the main event — display font, readable across the room.
-const answerText: React.CSSProperties = {
-  fontFamily: DISPLAY_FONT,
-  fontSize: "clamp(24px, 3vw, 36px)",
-  fontWeight: 800,
-  lineHeight: 1.2,
-};
-const paceToggle: React.CSSProperties = {
-  padding: "6px 14px",
-  fontSize: 16,
-  fontWeight: 800,
-  borderRadius: 999,
-  background: "rgba(255,255,255,0.15)",
-  color: "#fff",
-  border: "2px solid rgba(255,255,255,0.4)",
-  cursor: "pointer",
-};
-const chip: React.CSSProperties = { fontSize: 22, fontWeight: 800, color: "#111", padding: "10px 18px", borderRadius: 999, border: "3px solid #111", boxShadow: "4px 4px 0 #111" };
-const card: React.CSSProperties = { padding: 20, minHeight: 100 };
-const gridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16 };
-const bigBtn: React.CSSProperties = { padding: "16px 32px", fontSize: 24, marginTop: 12 };
-const stepBtn: React.CSSProperties = { width: 44, height: 44, fontSize: 24, fontWeight: 800, borderRadius: 12, border: "3px solid #111", background: "#fff", color: "#111", boxShadow: "3px 3px 0 #111", cursor: "pointer" };
-const podiumBar: React.CSSProperties = { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", gap: 6, padding: 14, borderRadius: 14, border: "3px solid #111", boxShadow: "5px 5px 0 #111" };
-const soundBtn: React.CSSProperties = { position: "fixed", bottom: 16, right: 16, zIndex: 60, padding: "10px 16px", fontSize: 15, fontWeight: 800, borderRadius: 999, background: "rgba(255,255,255,0.12)", color: "#fff", border: "1px solid rgba(255,255,255,0.25)", cursor: "pointer" };
-const kickBtn: React.CSSProperties = { padding: "8px 14px", fontSize: 15, fontWeight: 800, borderRadius: 999, background: "rgba(255,255,255,0.10)", color: "#ffb4b4", border: "2px solid rgba(255,120,120,0.55)", cursor: "pointer" };
