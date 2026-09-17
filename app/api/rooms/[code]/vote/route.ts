@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { UNANIMOUS_BONUS, voteWorth, isCleanSweep, quizCorrectWorth, quizSpeedBonus, quizFinderWorth } from "@/lib/gameEngine";
+import { UNANIMOUS_BONUS, canTransition, voteWorth, isCleanSweep, quizCorrectWorth, quizSpeedBonus, quizFinderWorth } from "@/lib/gameEngine";
 import { parseQuizState, isHouseSession, QUIZ_TRUTH_SESSION } from "@/lib/quiz";
 import { supabaseAdmin, broadcastRoom } from "@/lib/supabase";
 import { getSnapshot, bumpSeq } from "@/lib/roomService";
@@ -19,6 +19,8 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   if (!session_id) return NextResponse.json({ error: "session_id required" }, { status: 400 });
   if (session_id === target_session)
     return NextResponse.json({ error: "no self-vote" }, { status: 400 });
+  if (typeof session_id !== "string" || session_id.startsWith("quiz:"))
+    return NextResponse.json({ error: "reserved session" }, { status: 400 });
   const admin = supabaseAdmin();
   const { data: room } = await admin.from("rooms").select("*").eq("code", code).single();
   if (!room) return NextResponse.json({ error: "no room" }, { status: 404 });
@@ -105,7 +107,10 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   }
 
   // Read current scores fresh to minimize race window on score accumulation.
-  const { data: freshRoom } = await admin.from("rooms").select("scores,round_history").eq("code", code).single();
+  // Seq-guarded optimistic write: concurrent last-votes retry instead of
+  // lost-updating each other's points.
+  const { data: freshRoom } = await admin.from("rooms").select("scores,round_history,seq").eq("code", code).single();
+  const baseSeq = (freshRoom as Record<string, unknown> | null)?.seq as number | undefined;
   const raw = ((freshRoom?.scores ?? {}) as Record<string, number>);
   const scores: Record<string, number> = {};
   const byName = new Map((players ?? []).map((p) => [p.name, p.session_id]));
@@ -124,11 +129,40 @@ export async function POST(req: Request, { params }: { params: { code: string } 
 
   const roomPatch: Record<string, unknown> = { scores };
   let rhApplied = false;
-  try {
-    await admin.from("rooms").update({ ...roomPatch, round_history: roundHist }).eq("code", code);
-    rhApplied = true;
-  } catch {
-    // before migration: round_history column doesn't exist yet
+  // Optimistic concurrency: guard the write on the seq we read. If a
+  // concurrent vote bumped seq first, our update touches 0 rows — re-read
+  // scores once and re-apply so points aren't lost.
+  async function writeScores(
+    curScores: Record<string, number>,
+    curHist: Record<string, Record<string, number>>,
+    guardSeq: number | undefined,
+  ): Promise<boolean> {
+    try {
+      let q = admin.from("rooms").update({ scores: curScores, round_history: curHist }).eq("code", code);
+      if (typeof guardSeq === "number") q = q.eq("seq", guardSeq);
+      const { data: updated, error: updErr } = await q.select("seq");
+      if (updErr) return false;
+      return Array.isArray(updated) ? updated.length > 0 : true;
+    } catch {
+      // before migration: round_history column doesn't exist yet
+      return false;
+    }
+  }
+  rhApplied = await writeScores(scores, roundHist, baseSeq);
+  if (!rhApplied && typeof baseSeq === "number") {
+    const { data: retryRoom } = await admin.from("rooms").select("scores,round_history").eq("code", code).single();
+    const rRaw = ((retryRoom?.scores ?? {}) as Record<string, number>);
+    const merged: Record<string, number> = { ...rRaw };
+    if (awardSession) merged[awardSession] = (merged[awardSession] ?? 0) + awardPts;
+    const hRaw = ((retryRoom as Record<string, unknown> | null)?.round_history as Record<string, Record<string, number>> | null) ?? {};
+    const mergedHist: Record<string, Record<string, number>> = typeof hRaw === "object" && !Array.isArray(hRaw) ? { ...hRaw } : {};
+    mergedHist[key] = { ...(mergedHist[key] ?? {}) };
+    if (awardSession) mergedHist[key][awardSession] = (mergedHist[key][awardSession] ?? 0) + awardPts;
+    rhApplied = await writeScores(merged, mergedHist, undefined);
+    if (rhApplied) {
+      Object.assign(scores, merged);
+      Object.assign(roundHist, mergedHist);
+    }
   }
   if (!rhApplied) await admin.from("rooms").update(roomPatch).eq("code", code);
 
@@ -142,7 +176,8 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     const rows: VoteRow[] = (rowsRaw ?? []) as VoteRow[];
     const voted = rows.reduce((n, r) => n + (r.votes ?? 0), 0);
     const enoughVotable = rows.length >= 2;
-    if (enoughVotable && voted >= totalPlayers) {
+    // Engine-gated auto-advance: VOTE -> SCORE is the only legal flip here.
+    if (enoughVotable && voted >= totalPlayers && canTransition("VOTE", "SCORE", room.game_type)) {
       // unanimous: one answer has all votes
       const maxRow = rows.reduce<VoteRow | null>((m, r) => (!m || (r.votes ?? 0) > (m.votes ?? 0) ? r : m), null);
       if (maxRow && !quizRound && isCleanSweep(maxRow.votes ?? 0, totalPlayers)) {

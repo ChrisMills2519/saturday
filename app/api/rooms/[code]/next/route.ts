@@ -8,8 +8,7 @@ import { getSnapshot, bumpSeq } from "@/lib/roomService";
 export async function POST(req: Request, { params }: { params: { code: string } }) {
   const code = params.code.toUpperCase();
   const { to, prompt, game_type } = await req.json().catch(() => ({} as Record<string, unknown>));
-  const headerToken = req.headers.get("x-host-token");
-  const admin = supabaseAdmin();
+  const headerToken = req.headers.get("x-host-token");  const admin = supabaseAdmin();
   const { data: room } = await admin.from("rooms").select("*").eq("code", code).single();
   if (!room) return NextResponse.json({ error: "no room" }, { status: 404 });
   // Host guard: enforced once the game has left LOBBY. LOBBY stays open so a
@@ -20,7 +19,16 @@ export async function POST(req: Request, { params }: { params: { code: string } 
     headerToken !== (room as Record<string, unknown>).host_token
   )
     return NextResponse.json({ error: "host token required" }, { status: 403 });
-  if (!canTransition(room.phase as Phase, to as Phase, (room.game_type as string | null) ?? null))
+  const VALID_TO: Phase[] = ["LOBBY", "INPUT", "REVEAL", "VOTE", "SCORE"];
+  if (typeof to !== "string" || !VALID_TO.includes(to as Phase))
+    return NextResponse.json({ error: "bad destination" }, { status: 400 });
+  // Gate on the effective type: a text->draw switch rides the INPUT advance,
+  // so validate against what the room is becoming, not what it was.
+  const effectiveGameType =
+    to === "INPUT" && (game_type === "text" || game_type === "draw")
+      ? (game_type as string)
+      : ((room.game_type as string | null) ?? null);
+  if (!canTransition(room.phase as Phase, to as Phase, effectiveGameType))
     return NextResponse.json({ error: `bad transition ${room.phase} -> ${to}` }, { status: 400 });
   const patch: Record<string, unknown> = { phase: to as string };
   if (to === "INPUT") {

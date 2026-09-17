@@ -31,6 +31,17 @@ export function useRoom(code: string, initial: RoomSnapshot | null) {
   // Monotonic seq guard: drop out-of-order broadcasts. The 3s GET
   // fallback is always trusted and resyncs the baseline.
   const lastSeq = useRef(initial?.seq ?? -1);
+  const initialSeq = useRef(initial?.seq ?? -1);
+
+  // First paint: the page fetches the snapshot async after mount, so adopt
+  // a late-arriving initial instead of waiting 0-3s for broadcast/poll.
+  useEffect(() => {
+    if (initial && (initial.seq ?? -1) > lastSeq.current) {
+      lastSeq.current = initial.seq;
+      initialSeq.current = initial.seq;
+      setRoom(initial);
+    }
+  }, [initial]);
 
   useEffect(() => {
     if (!code) return;
@@ -48,10 +59,17 @@ export function useRoom(code: string, initial: RoomSnapshot | null) {
       .subscribe();
 
     // Fallback poll in case broadcast is missed (cheap: every 3s, bones only).
+    // Stops after repeated 404s so dead-room screens don't poll forever.
+    let misses = 0;
     const poll = setInterval(async () => {
       try {
         const res = await fetch(`/api/rooms/${code}`, { cache: "no-store" });
+        if (res.status === 404) {
+          if (++misses >= 3) clearInterval(poll);
+          return;
+        }
         if (res.ok) {
+          misses = 0;
           const snap = (await res.json()) as RoomSnapshot;
           if (typeof snap?.seq === "number") lastSeq.current = snap.seq;
           setRoom(snap);

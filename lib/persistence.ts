@@ -67,3 +67,23 @@ export function loadVoted(code: string, round: number): string | null {
 export function saveVoted(code: string, round: number, target: string): void {
   safeSet(voteKey(code, round), target);
 }
+
+export function clearVoted(code: string, round: number): void {
+  safeDel(voteKey(code, round));
+}
+
+/** Rematch resets rounds to 0 — drop stale vote flags so a new game's R1
+ * never renders "Vote locked in" from the previous game. */
+export function clearAllVoted(code: string, maxRounds = 12): void {
+  const prefix = `saturday:voted:${code.toUpperCase()}:`;
+  try {
+    if (typeof window === "undefined") return;
+    const doomed: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (k && k.startsWith(prefix)) doomed.push(k);
+    }
+    doomed.forEach((k) => window.localStorage.removeItem(k));
+  } catch {}
+  for (let r = 0; r <= maxRounds; r++) safeDel(voteKey(code, r));
+}

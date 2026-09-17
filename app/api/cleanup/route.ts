@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { purgeExpiredRooms } from "@/lib/roomCleanup";
+import { expireStuckRooms } from "@/lib/phaseAdvance";
 
 // Must stay dynamic: this route deletes based on now(), never cache it.
 export const dynamic = "force-dynamic";
@@ -18,8 +19,11 @@ function isAuthorized(req: Request): boolean {
 async function handle(req: Request) {
   if (!isAuthorized(req))
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  // Sweep stuck clocks first so rooms abandoned with a sleeping TV still
+  // advance, then purge dead weight.
+  const expired = await expireStuckRooms(20);
   const deleted = await purgeExpiredRooms(supabaseAdmin());
-  return NextResponse.json({ ok: true, deleted });
+  return NextResponse.json({ ok: true, expired, deleted });
 }
 
 // Vercel Cron issues GET; allow POST too for manual curl triggers.

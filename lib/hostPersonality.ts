@@ -37,80 +37,6 @@ export type Slot =
   | "quiz_nobody_right" // zero correct picks — gentle, knowledge is hard
   | "quiz_bluff_sting"; // tease instead of reading the hidden truth aloud
 
-const FAMILY: Record<Slot, string[]> = {
-  lobby_cold_open: [
-    "Saturday night... [beat] who showed up ready to lose with dignity?",
-    "Welcome to Saturday... technically a trivia game... spiritually a mistake — who invited this group?",
-  ],
-  lobby_ready: [
-    "Fun fact: you all showed up... [beat] but who here actually came to win?",
-    "Enough humans... barely — so who's feeling brave already?",
-  ],
-  input_opener: [
-    "Prompt's on the TV... [beat] so what have you got — comedy or confidence?",
-    "Round's live... what would you write if you weren't overthinking it?",
-  ],
-  input_nudge: [
-    "Who's still typing — genius or napper?",
-    "Whose brain is buffering right now... and what's it loading?",
-    "Short or long... [beat] which way are you going with this one?",
-    "Who's stalling... and do they know I can see it?",
-    "Stuck? [beat] Whose name are you borrowing brilliance from?",
-  ],
-  input_stall: [
-    "Still waiting on a few masterpieces... whose magnum opus is it?",
-    "Clock's ticking... [beat] what's cooking in there — masterpiece or typo?",
-  ],
-  extend_snark: [
-    "Thirty more seconds... [beat] who's actually going to use them?",
-    "Extra time... whose genius needed a deadline extension?",
-  ],
-  reveal_opener: [
-    "Drumroll... [beat] ready to hear what this group calls funny?",
-    "Answers are in... so whose is whose — any guesses?",
-  ],
-  reveal_drawing: [
-    "Next... a drawing — what am I looking at here, art or accident?",
-    "A visual entry... bold... [beat] but what was the artist thinking?",
-  ],
-  vote_opener: [
-    "Ballots are live... [beat] which one actually deserves it?",
-    "So many choices... which one would you steal credit for?",
-  ],
-  score_winner: [
-    "Results... [beat] so who peaked tonight?",
-    "Scores are in... whose victory lap is this?",
-  ],
-  score_shutout: [
-    "Zero votes for that one... how does that even happen?",
-    "No votes there... [beat] who else felt that sting before?",
-  ],
-  score_unanimous: [
-    "A clean sweep... did you all plan that together?",
-    "Unanimous... [beat] when has this room ever agreed on anything?",
-  ],
-  score_award: [
-    "House awards... [beat] who earned a title nobody asked for?",
-    "Bonus titles... whose consolation prize is this?",
-  ],
-  quiz_question: [
-    "Trivia time... [beat] who's actually been paying attention?",
-    "Question's up... so who here knows things?",
-  ],
-  quiz_correct: [
-    "The answer was... did anyone actually know that?",
-    "Correct answer's in... whose brain just earned its keep?",
-  ],
-  quiz_nobody_right: [
-    "Nobody got it... how are we feeling about that?",
-    "Zero correct... [beat] who else is rethinking everything?",
-  ],
-  quiz_bluff_sting: [
-    "One of these is true... the rest are lies — whose nose is growing?",
-    "Real answer hiding among fakes... can anyone smell the truth?",
-  ],
-};
-
 const SAVAGE: Record<Slot, string[]> = {
   lobby_cold_open: [
     "Saturday night... [beat] who lowered their standards to be here?",
@@ -184,9 +110,8 @@ const SAVAGE: Record<Slot, string[]> = {
   ],
 };
 
-// RETIRED 2026-09-16: FAMILY bank below is dead — voice is savage-only,
-// one voice for the whole game (Emma). Kept in file to keep the diff small;
-// bank() ignores mode and always deals savage.
+// Voice is savage-only, one voice for the whole game (Emma). The mode param
+// stays so call sites don't churn; it is intentionally ignored.
 function bank(_mode: SarcasmMode): Record<Slot, string[]> {
   return SAVAGE;
 }

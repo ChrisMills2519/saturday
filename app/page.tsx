@@ -57,7 +57,9 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      router.push(`/play/${code.trim().toUpperCase()}?name=${encodeURIComponent(name.trim())}`);
+      // Server may dedupe ("Alex (2)") — carry the settled name forward.
+      const settled = typeof data?.name === "string" && data.name.trim() ? data.name.trim() : name.trim();
+      router.push(`/play/${code.trim().toUpperCase()}?name=${encodeURIComponent(settled)}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't join — check the code and try again.");
     } finally {

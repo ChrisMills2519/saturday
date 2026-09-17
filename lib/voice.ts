@@ -57,12 +57,6 @@ export function setVoiceEnabled(on: boolean): void {
  * sites don't churn; family bank is gone (see hostPersonality). */
 export type SarcasmMode = "savage";
 
-export function getSarcasmMode(): SarcasmMode {
-  return "savage";
-}
-
-export function setSarcasmMode(): void {}
-
 /** Full-swap rollback: "0" pins Tier 1; env NEXT_PUBLIC_VOICE=tier1 same. */
 export function isKokoroEnabled(): boolean {
   try {

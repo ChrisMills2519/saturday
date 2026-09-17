@@ -10,6 +10,10 @@ export async function POST(req: Request, { params }: { params: { code: string } 
   const code = params.code.toUpperCase();
   const { target_session } = await req.json().catch(() => ({} as Record<string, unknown>));
   if (!target_session) return NextResponse.json({ error: "target_session required" }, { status: 400 });
+  // Guard the PostgREST .or() filter below: raw interpolation of `,`/`(`/`)`
+  // could break the filter or widen the delete. UUIDs + quiz:* only.
+  if (typeof target_session !== "string" || !/^[A-Za-z0-9-:]{1,64}$/.test(target_session))
+    return NextResponse.json({ error: "bad target_session" }, { status: 400 });
   const headerToken = req.headers.get("x-host-token");
   const admin = supabaseAdmin();
   const { data: room } = await admin.from("rooms").select("*").eq("code", code).single();

@@ -2,15 +2,20 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin, broadcastRoom } from "@/lib/supabase";
 import { getSnapshot, bumpSeq } from "@/lib/roomService";
 import { canTransition, revealSeconds } from "@/lib/gameEngine";
-import { ANSWER_MAX, sanitizeText, rejectReasonForAnswer } from "@/lib/validation";
+import { ANSWER_MAX, sanitizeText, rejectReasonForAnswer, rejectReasonForImageUrl, rejectReasonForSession } from "@/lib/validation";
 
 export async function POST(req: Request, { params }: { params: { code: string } }) {
   const code = params.code.toUpperCase();
   const { session_id, text_content, image_url } = await req.json();
   if (!session_id || (!text_content && !image_url))
     return NextResponse.json({ error: "session_id + text_content or image_url required" }, { status: 400 });
+  const whySession = rejectReasonForSession(session_id);
+  if (whySession) return NextResponse.json({ error: whySession }, { status: 400 });
   const cleanText = text_content ? sanitizeText(String(text_content), ANSWER_MAX) : null;
-  const reason = rejectReasonForAnswer(cleanText, image_url ? String(image_url) : null);
+  const imgStr = image_url ? String(image_url) : null;
+  const whyImg = rejectReasonForImageUrl(imgStr);
+  if (whyImg) return NextResponse.json({ error: whyImg }, { status: 400 });
+  const reason = rejectReasonForAnswer(cleanText, imgStr);
   if (reason) return NextResponse.json({ error: reason }, { status: 400 });
   // DataURL / URL size guard: big WebViews (Pixel camera, long leaves) get rejected client-side; server too.
   if (image_url && String(image_url).length > 600_000) return NextResponse.json({ error: "drawing too large" }, { status: 400 });

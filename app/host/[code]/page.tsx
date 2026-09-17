@@ -620,8 +620,8 @@ export default function HostPage({ params }: { params: { code: string } }) {
   // thin rounds advance anyway rather than parking on a host prompt.
   // SCORE stays manual (host picks Next round / Rematch). Server clears
   // ends_at on the destination phase, so left hits 0 once.
-  // Accepted limitation: the TV tab must stay open — this timer is the
-  // only fallback, there are no server ticks.
+  // Server timer owns expiry now (phones POST /api/rooms/[code]/tick at 0s +
+  // cleanup cron sweeps); this TV auto-advance stays as an immediate fallback.
   useEffect(() => {
     if (!room || left !== 0) return;
     if (room.phase !== "INPUT" && room.phase !== "VOTE" && room.phase !== "REVEAL") return;
@@ -723,7 +723,18 @@ export default function HostPage({ params }: { params: { code: string } }) {
               </div>
               <figure style={{ margin: 0, textAlign: "center" }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={qr} alt="Scan to join" width={170} height={170} style={{ background: "#fff", padding: 8, borderRadius: 14, border: "3px solid #111", boxShadow: "5px 5px 0 #111" }} />
+                <img
+                  src={qr}
+                  alt="Scan to join"
+                  width={170}
+                  height={170}
+                  style={{ background: "#fff", padding: 8, borderRadius: 14, border: "3px solid #111", boxShadow: "5px 5px 0 #111" }}
+                  onError={(e) => {
+                    // Offline / third-party QR outage: hide the broken image,
+                    // the join URL + room code above remain the source of truth.
+                    (e.target as HTMLImageElement).style.display = "none";
+                  }}
+                />
                 <figcaption style={{ fontSize: 16, fontWeight: 800, marginTop: 4 }}>Scan to join — whose phone is next?</figcaption>
               </figure>
               <div>

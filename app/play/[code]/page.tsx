@@ -6,7 +6,7 @@ import { getSessionId } from "@/lib/gameEngine";
 import { isHouseSession, letterForSession } from "@/lib/quiz";
 import { THEME, DISPLAY_FONT, IMAGES, stageBg, answerCard, phoneBtn } from "@/lib/theme";
 import { Mascot } from "@/components/Mascot";
-import { clearDraft, loadDraft, loadJoin, loadVoted, saveDraft, saveJoin, saveVoted } from "@/lib/persistence";
+import { clearDraft, clearAllVoted, loadDraft, loadJoin, loadVoted, saveDraft, saveJoin, saveVoted } from "@/lib/persistence";
 
 import { useRoom, useCountdown, type RoomSnapshot } from "@/lib/realtime";
 import { DrawPad } from "@/components/DrawPad";
@@ -72,7 +72,14 @@ function PlayInner({ code }: { code: string }) {
   const [deadRoom, setDeadRoom] = useState(false);
   const [editing, setEditing] = useState(false);
   const [savedAnswer, setSavedAnswer] = useState("");
-  const [sid] = useState(() => getSessionId());
+  const [submitBusy, setSubmitBusy] = useState(false);
+  const [voteBusy, setVoteBusy] = useState(false);
+  // Identity reads localStorage — never during render (hydration). Start
+  // empty (SSR-safe), hydrate after mount.
+  const [sid, setSid] = useState("");
+  useEffect(() => {
+    setSid(getSessionId());
+  }, []);
   const reduce = useReducedMotion();
   const autoJoined = useRef(false);
   const lastLeft = useRef<number | null>(null);
@@ -132,6 +139,9 @@ function PlayInner({ code }: { code: string }) {
     setVoteErr(null);
     setSubmitErr(null);
     // A new round clears any edit-in-progress (drafts are persisted per round).
+    // LOBBY after SCORE is a rematch: rounds reset, so drop previous game's
+    // vote flags to avoid a stale "Vote locked in".
+    if (room?.phase === "LOBBY") clearAllVoted(code);
     if (lastRound.current !== round) {
       lastRound.current = round;
       setEditing(false);
@@ -171,6 +181,18 @@ function PlayInner({ code }: { code: string }) {
       buzz();
     }
   }, [left]);
+
+  // Server-timer fallback: any phone at 0s nudges the server (idempotent
+  // tick) so a sleeping/closed TV tab can't park INPUT/REVEAL/VOTE.
+  const tickFired = useRef<string | null>(null);
+  useEffect(() => {
+    if (left !== 0 || !room) return;
+    if (room.phase !== "INPUT" && room.phase !== "REVEAL" && room.phase !== "VOTE") return;
+    const key = `${code}:${round}:${room.phase}`;
+    if (tickFired.current === key) return;
+    tickFired.current = key;
+    fetch(`/api/rooms/${code}/tick`, { method: "POST" }).catch(() => {});
+  }, [left, room?.phase, round, code]);
 
   async function join() {
     if (!name.trim() || joinBusy) return;
@@ -213,29 +235,35 @@ function PlayInner({ code }: { code: string }) {
   }
 
   async function sendAnswer(payload: { text_content?: string; image_url?: string }) {
+    if (submitBusy) return false;
     ensureAudio();
-    const res = await fetch(`/api/rooms/${code}/submit`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: getSessionId(), ...payload }),
-    });
-    const data = await res.json().catch(() => ({} as Record<string, unknown>));
-    if (!res.ok) {
-      setSubmitErr(
-        data?.error === "family-friendly answers only"
-          ? "Keep it family-friendly — try again."
-          : data?.error === "answer too short"
-            ? "Give us a little more than that."
-            : SUBMIT_LATE,
-      );
-      return false;
+    setSubmitBusy(true);
+    try {
+      const res = await fetch(`/api/rooms/${code}/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: getSessionId(), ...payload }),
+      });
+      const data = await res.json().catch(() => ({} as Record<string, unknown>));
+      if (!res.ok) {
+        setSubmitErr(
+          data?.error === "family-friendly answers only"
+            ? "Keep it family-friendly — try again."
+            : data?.error === "answer too short"
+              ? "Give us a little more than that."
+              : SUBMIT_LATE,
+        );
+        return false;
+      }
+      submitBlip();
+      buzz();
+      // Draft is kept so an edit before REVEAL restores it; cleared on round change.
+      setSubmitErr(null);
+      setEditing(false);
+      return true;
+    } finally {
+      setSubmitBusy(false);
     }
-    submitBlip();
-    buzz();
-    // Draft is kept so an edit before REVEAL restores it; cleared on round change.
-    setSubmitErr(null);
-    setEditing(false);
-    return true;
   }
 
   async function submit() {
@@ -255,22 +283,28 @@ function PlayInner({ code }: { code: string }) {
   }
 
   async function vote(player_session: string) {
+    if (voteBusy || voted) return;
     setVoteErr(null);
+    setVoteBusy(true);
     ensureAudio();
-    const res = await fetch(`/api/rooms/${code}/vote`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: getSessionId(), target_session: player_session }),
-    });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      setVoteErr(data.error === "already voted" ? ALREADY_VOTED : `Couldn't vote: ${data.error ?? res.status}`);
-      return;
+    try {
+      const res = await fetch(`/api/rooms/${code}/vote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: getSessionId(), target_session: player_session }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setVoteErr(data.error === "already voted" ? ALREADY_VOTED : `Couldn't vote: ${data.error ?? res.status}`);
+        return;
+      }
+      votePop();
+      buzz();
+      saveVoted(code, round, player_session);
+      setVoted(player_session);
+    } finally {
+      setVoteBusy(false);
     }
-    votePop();
-    buzz();
-    saveVoted(code, round, player_session);
-    setVoted(player_session);
   }
 
   if (!joined) {
@@ -364,7 +398,7 @@ function PlayInner({ code }: { code: string }) {
               <p style={{ fontSize: 16, opacity: 0.8, margin: "0 0 4px", display: "flex", alignItems: "center", gap: 8 }}>
                 <DrawIcon size={20} /> {room.prompt_hint ?? "What does yours look like?"}
               </p>
-              <DrawPad disabled={false} onDone={submitDrawing} />
+              <DrawPad disabled={submitBusy} onDone={submitDrawing} />
             </>
           ) : (
             <>
@@ -392,10 +426,11 @@ function PlayInner({ code }: { code: string }) {
               </div>
               <motion.button
                 onClick={submit}
+                disabled={submitBusy}
                 whileTap={{ scale: 0.95 }}
                 style={btn}
               >
-                {editing ? "Save changes" : "Submit answer"}
+                {submitBusy ? "Sending…" : editing ? "Save changes" : "Submit answer"}
               </motion.button>
               {editing && (
                 <button onClick={() => setEditing(false)} style={linkBtn}>
@@ -489,7 +524,7 @@ function PlayInner({ code }: { code: string }) {
             </div>
           ) : (
             votable.map((s) => (
-              <motion.button key={s.player_session} onClick={() => vote(s.player_session)} whileTap={{ scale: 0.96 }} style={voteBtn}>
+              <motion.button key={s.player_session} onClick={() => vote(s.player_session)} disabled={voteBusy} whileTap={{ scale: 0.96 }} style={voteBtn}>
                 {letterForSession(s.player_session) && (
                   <span style={{ display: "inline-block", fontFamily: DISPLAY_FONT, fontSize: 22, background: "#111", color: "#ffd23f", borderRadius: 8, padding: "0 12px", marginRight: 8 }}>
                     {letterForSession(s.player_session)}

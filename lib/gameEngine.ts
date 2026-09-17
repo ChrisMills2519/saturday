@@ -88,18 +88,44 @@ export function makeHostToken(): string {
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 export function makeRoomCode(): string {
+  // Crypto RNG: Math.random codes are predictable/enumerable.
+  // Fallback to Math.random only where WebCrypto is unavailable.
+  const rand = (n: number): number => {
+    try {
+      if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+        const buf = new Uint32Array(1);
+        crypto.getRandomValues(buf);
+        return buf[0] % n;
+      }
+    } catch {}
+    return Math.floor(Math.random() * n);
+  };
   let code = "";
   for (let i = 0; i < 4; i++) {
-    code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+    code += CODE_CHARS[rand(CODE_CHARS.length)];
   }
   return code;
+}
+
+function fallbackId(): string {
+  try {
+    const arr = new Uint8Array(16);
+    crypto.getRandomValues(arr);
+    return Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return `${Date.now().toString(36)}-${Math.floor(Math.random() * 1e9).toString(36)}`;
+  }
 }
 
 export function getSessionId(): string {
   if (typeof window === "undefined") return "";
   let id = window.localStorage.getItem("saturday_session");
   if (!id) {
-    id = crypto.randomUUID();
+    try {
+      id = crypto.randomUUID();
+    } catch {
+      id = fallbackId();
+    }
     window.localStorage.setItem("saturday_session", id);
   }
   return id;

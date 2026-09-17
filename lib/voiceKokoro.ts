@@ -15,7 +15,18 @@ import { chunkLine, type LineType } from "./voice";
 import { getVoiceProfile, VOICE_CHOICES } from "./voiceProfile";
 
 export const KOKORO_MODEL = "onnx-community/Kokoro-82M-v1.0-ONNX";
-export const KOKORO_VOICES = ["bm_fable", "bf_emma"] as const;
+export const KOKORO_VOICES = [
+  "bf_emma",
+  "bm_fable",
+  "bm_george",
+  "bm_daniel",
+  "af_bella",
+  "af_nicole",
+  "af_heart",
+  "am_michael",
+  "am_adam",
+  "am_onyx",
+] as const;
 export type KokoroVoiceId = (typeof KOKORO_VOICES)[number];
 
 // Voice + speeds come from the Voice Lab profile (lib/voiceProfile.ts):
@@ -23,7 +34,8 @@ export type KokoroVoiceId = (typeof KOKORO_VOICES)[number];
 // saved profile at gen time. Fallback when nothing saved = Emma as shipped
 // with the DEFAULT_PROFILE speeds (the pre-lab tuning).
 export function getKokoroVoice(): KokoroVoiceId {
-  return getVoiceProfile().voice as KokoroVoiceId;
+  const v = getVoiceProfile().voice;
+  return (KOKORO_VOICES as readonly string[]).includes(v) ? (v as KokoroVoiceId) : "bf_emma";
 }
 
 export const KOKORO_VOICE_LABELS = VOICE_CHOICES;

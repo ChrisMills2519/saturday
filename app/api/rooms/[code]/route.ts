@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin, broadcastRoom } from "@/lib/supabase";
+import { supabaseAdmin } from "@/lib/supabase";
 import { getSnapshot } from "@/lib/roomService";
 
 // Must stay dynamic: supabase-js uses fetch internally and App Router

@@ -414,3 +414,45 @@ Append-only journal. Newest entries at the bottom. One entry per work session: d
 **Verified:** `npm run typecheck` clean; `npm run build` green (host 12.9 kB, new `/voicelab` 7.65 kB static, play page unchanged — 0 kokoro refs). `next start` smoke: `/`, `/voicelab`, `/host/ZZZ9`, `/play/ZZZ9` all 200; `/voicelab` HTML carries the voice/speed/save sections; the profile key + Voice Lab link land in the host chunk. Needs a human ear pass on the TV: does the draft audition match what the game speaks after Save, and does a voice swap survive a reload.
 
 **What's next:** preset profile bundles ("posh sneer" / "deadpan" / "museum guide") so a tuned delivery is one click instead of 15 sliders; keep the exported JSON beside the repo for the next TV.
+
+## 2026-09-17 — Voice pile clean-room verification + dead-code cleanup
+
+**Why:** review claimed the voice stack referenced a missing `getVoiceProfile`/`/voicelab` and that green builds were a stale-cache artifact, with `voiceProfile.ts` untracked. Needed a clean-room check before Saturday, plus removal of anything unfinished.
+
+**Found:** claim is stale — commit `2f6eb31` already tracks `lib/voiceProfile.ts` (exports `getVoiceProfile` + `loadVoiceProfile`), `app/voicelab/page.tsx` exists, and all 5 `app/**/page.tsx` routes (/, /host, /play, /preview, /voicelab) build. Clean-room `rm tsconfig.tsbuildinfo && npm run typecheck` is clean, `npm run build` green (host 12.9 kB, voicelab 7.71 kB static). No missing imports, no untracked voice files (`git status` clean before this change).
+
+**Cleanup (unfinished bits actually found):**
+- `lib/voiceKokoro.ts`: `KOKORO_VOICES` listed only 2 ids while the lab offers 10, so `getKokoroVoice()` cast lied for any non-Emma/Fable pick. Now lists all 10 lab voices with a safe `bf_emma` fallback for unknown ids.
+- `lib/hostPersonality.ts`: deleted the dead 70-line `FAMILY` bank (savage-only since 2026-09-16); `bank()` now just documents that mode is ignored.
+- `lib/voice.ts`: removed dead `getSarcasmMode`/`setSarcasmMode` stubs (no callers; `SarcasmMode="savage"` type kept so call sites don't churn).
+
+**Verified:** `npm run typecheck` clean, `npm run build` green (same sizes). No behavior change on stock Emma profile.
+
+**Still deferred (not tonight):** Phase 2 auto-advance, zero test coverage, thin-round `VOTE_NEED_MORE` 7s oddity, prod Vercel env + live smoke + TV-speaker ear pass per the readiness list.
+
+## 2026-09-17 — P0+P1 audit fixes + server-side timer
+
+**Why:** 4-scout read-only audit found spoofing/injection/race holes, TV-as-SPOF (lid closed = game parked at 0s), and phone UX glitches. User picked P0+P1 combined + server-side timer + commit/push.
+
+**P0 hardening:**
+- `lib/gameEngine.ts`: `makeRoomCode` now crypto RNG (`getRandomValues`, Math.random fallback); `getSessionId` falls back past missing `randomUUID`.
+- `lib/validation.ts`: `rejectReasonForAnswer` always checks text (drawing no longer excuses profanity); new `rejectReasonForSession` (blocks `quiz:*`, charset) + `rejectReasonForImageUrl` (data:image/https only).
+- `join`: rejects `quiz:*` session_ids; deleted dead late-join-full branch.
+- `kick`: `target_session` charset guard before `.or()` interpolation.
+- `submit`: session + image-scheme validation.
+- `vote`: session guard, `canTransition(VOTE,SCORE)` gate, seq-guarded optimistic score write with one re-read retry (was read-modify-write).
+- `next`: `to` allowlist (`bad destination` 400), engine gate on effective (requested) game_type.
+- `[code]/route.ts`: dropped dead `broadcastRoom` import.
+
+**P1 reliability:**
+- `useRoom`: adopts late `initial` (no more 0-3s Loading after fetch), poll stops after 3×404.
+- Landing join carries settled deduped name; phone `sid` hydrates in `useEffect` (no render-time localStorage); rematch clears `saturday:voted:*` on LOBBY; submit/vote/DrawPad busy guards; host QR `onError` hides (URL+code remain).
+
+**Server timer (TV no longer SPOF):**
+- New `lib/phaseAdvance.ts` (`expireRoomByCode` + `expireStuckRooms`): engine-gated, conditional-phase writes, no per-second ticks.
+- New `POST /api/rooms/[code]/tick` (unauthenticated, idempotent): phones fire once at `left===0` for INPUT/REVEAL/VOTE; TV `next` auto-advance kept as immediate fallback.
+- `/api/cleanup` now sweeps stuck clocks (bounded 20) before purging 24h rooms; returns `{expired, deleted}`.
+
+**Verified:** `npm run typecheck` clean, `npm run build` green (new `/api/rooms/[code]/tick` route; host 12.9 kB, play 7.15 kB, voicelab 7.71 kB, no onnx chunks). Mental smoke: create→join→submit→vote→SCORE unchanged; expiry path is conditional-phase + broadcast, same snapshot channel.
+
+**Still deferred (P2):** Tier-1 presets hardcoded, voice cross-tab cache bust, dual voice-list sync guard, lobby-bed prune (6 beds, 1 wired), README/file-map drift, `tsconfig target` ES5 default.

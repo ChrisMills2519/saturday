@@ -40,11 +40,33 @@ export function rejectReasonForName(name: string): string | null {
 }
 
 export function rejectReasonForAnswer(text: string | null, imageUrl: string | null): string | null {
-  if (imageUrl) return null;
+  // Both channels are checked: a drawing never excuses profane text_content.
   const t = sanitizeText(text ?? "");
-  if (!t) return "answer required";
-  if (t.length < 2) return "answer too short";
-  if (containsProfanity(t)) return "family-friendly answers only";
+  if (t) {
+    if (t.length < 2) return "answer too short";
+    if (containsProfanity(t)) return "family-friendly answers only";
+    return null;
+  }
+  if (imageUrl) return null;
+  return "answer required";
+}
+
+const SESSION_RE = /^[A-Za-z0-9-]{1,64}$/;
+
+/** Player session ids must be plain tokens — never house `quiz:*` rows. */
+export function rejectReasonForSession(sessionId: unknown): string | null {
+  if (typeof sessionId !== "string" || !sessionId) return "session_id required";
+  if (sessionId.startsWith("quiz:")) return "reserved session";
+  if (!SESSION_RE.test(sessionId)) return "bad session_id";
+  return null;
+}
+
+const IMAGE_RE = /^(data:image\/(png|jpeg|webp);base64,|https?:\/\/)/i;
+
+/** Drawings must be image data-URLs or http(s) URLs — never arbitrary strings. */
+export function rejectReasonForImageUrl(imageUrl: unknown): string | null {
+  if (imageUrl == null) return null;
+  if (typeof imageUrl !== "string" || !IMAGE_RE.test(imageUrl.trim())) return "bad drawing";
   return null;
 }
 
